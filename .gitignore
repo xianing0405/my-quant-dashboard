@@ -1,0 +1,26 @@
+# 密钥与本地配置
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets.*
+.local/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 系统
+.DS_Store
+
+# ===== 内部知识库（机密材料，绝不进入版本库）=====
+# 原始内部材料（研报 / 会议纪要等）仅保留目录结构，正文文件一律忽略
+core/knowledge/raw_docs/*
+!core/knowledge/raw_docs/.gitkeep
+
+# 检索索引（含内部材料解码正文，同属机密）仅保留目录结构，索引文件一律忽略
+core/knowledge/index/*
+!core/knowledge/index/.gitkeep

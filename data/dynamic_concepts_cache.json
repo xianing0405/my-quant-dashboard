@@ -1,0 +1,156 @@
+{
+  "updated_at": "2026-09-16 22:48:29",
+  "source": "Wind 资讯 + 大模型动态概念提取",
+  "concepts": [
+    {
+      "name": "存储芯片",
+      "catalyst": "市场传闻苹果已接受三星电子2027年一季度存储芯片报价，带动存储链预期升温",
+      "stocks": [
+        {
+          "name": "有研硅",
+          "code": "688432.SH",
+          "change_pct": 20.0,
+          "turnover": 39.14
+        },
+        {
+          "name": "有研新材",
+          "code": "600206.SH",
+          "change_pct": 9.99,
+          "turnover": 37.59
+        },
+        {
+          "name": "中晶科技",
+          "code": "—",
+          "change_pct": null,
+          "turnover": null
+        },
+        {
+          "name": "上海合晶",
+          "code": "—",
+          "change_pct": null,
+          "turnover": null
+        }
+      ]
+    },
+    {
+      "name": "光通信/CPO",
+      "catalyst": "光通信、CPO板块获主力资金超200亿元净流入，算力需求持续高景气",
+      "stocks": [
+        {
+          "name": "光迅科技",
+          "code": "002281.SZ",
+          "change_pct": 10.0,
+          "turnover": 74.05
+        },
+        {
+          "name": "中际旭创",
+          "code": "300308.SZ",
+          "change_pct": 5.07,
+          "turnover": 214.71
+        },
+        {
+          "name": "新易盛",
+          "code": "300502.SZ",
+          "change_pct": 6.72,
+          "turnover": 159.06
+        },
+        {
+          "name": "永鼎股份",
+          "code": "600105.SH",
+          "change_pct": 10.0,
+          "turnover": 66.08
+        }
+      ]
+    },
+    {
+      "name": "半导体材料",
+      "catalyst": "半导体材料板块表现强势，科创综指大涨带动上游材料股集体走强",
+      "stocks": [
+        {
+          "name": "有研硅",
+          "code": "688432.SH",
+          "change_pct": 20.0,
+          "turnover": 39.14
+        },
+        {
+          "name": "有研新材",
+          "code": "600206.SH",
+          "change_pct": 9.99,
+          "turnover": 37.59
+        },
+        {
+          "name": "沪硅产业",
+          "code": "688126.SH",
+          "change_pct": 8.62,
+          "turnover": 21.25
+        },
+        {
+          "name": "天岳先进",
+          "code": "688234.SH",
+          "change_pct": 11.28,
+          "turnover": 12.13
+        }
+      ]
+    },
+    {
+      "name": "光刻机",
+      "catalyst": "半导体设备反复活跃，光刻机概念涨幅居前",
+      "stocks": [
+        {
+          "name": "晶升股份",
+          "code": "688478.SH",
+          "change_pct": 19.99,
+          "turnover": 3.79
+        },
+        {
+          "name": "科瑞技术",
+          "code": "002957.SZ",
+          "change_pct": 10.01,
+          "turnover": 8.05
+        },
+        {
+          "name": "有研新材",
+          "code": "600206.SH",
+          "change_pct": 9.99,
+          "turnover": 37.59
+        },
+        {
+          "name": "中晶科技",
+          "code": "003026.SZ",
+          "change_pct": 10.01,
+          "turnover": 5.1
+        }
+      ]
+    },
+    {
+      "name": "碳化硅",
+      "catalyst": "半导体材料强势，天岳先进等碳化硅衬底标的涨幅居前",
+      "stocks": [
+        {
+          "name": "天岳先进",
+          "code": "688234.SH",
+          "change_pct": 11.28,
+          "turnover": 12.13
+        },
+        {
+          "name": "露笑科技",
+          "code": "002617.SZ",
+          "change_pct": 10.03,
+          "turnover": 7.68
+        },
+        {
+          "name": "有研硅",
+          "code": "688432.SH",
+          "change_pct": 20.0,
+          "turnover": 39.14
+        },
+        {
+          "name": "沪硅产业",
+          "code": "688126.SH",
+          "change_pct": 8.62,
+          "turnover": 21.25
+        }
+      ]
+    }
+  ]
+}

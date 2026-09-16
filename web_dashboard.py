@@ -32,6 +32,7 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 
+from core.industry_tracker import load_cache as load_concept_cache, run_daily as run_concept_daily
 from core.knowledge.local_rag import search_internal_knowledge
 
 HERE = Path(__file__).resolve().parent
@@ -407,19 +408,46 @@ def _render_industry_page() -> None:
     st.subheader("🏭 细分产业与概念追踪")
 
     st.markdown(
-        "系统将通过大模型每日读取新闻与研报，动态提取如「碳化硅」「电子布」等"
+        "系统通过大模型每日读取新闻与研报，动态提取「碳化硅」「电子布」等"
         "高频轮动概念，替代传统的申万行业分类。"
     )
 
-    st.markdown("##### 概念涨跌幅监控表")
-    placeholder = pd.DataFrame({
-        "动态概念名称": ["碳化硅", "电子布", "示例概念"],
-        "核心催化剂（AI总结）": ["待大模型每日生成", "待大模型每日生成", "待大模型每日生成"],
-        "相关个股": ["待接入", "待接入", "待接入"],
-        "当日涨跌幅": ["—", "—", "—"],
+    if st.button("🔄 重新提取今日概念", key="refresh_concepts"):
+        with st.spinner("正在扫描资讯并提取概念，请稍候（约 1-3 分钟）…"):
+            run_concept_daily()
+        st.rerun()
+
+    cache = load_concept_cache()
+    concepts = cache.get("concepts", [])
+    st.caption(f"数据来源：Wind 资讯 + 大模型动态提取 · 最近更新：{cache.get('updated_at') or '—'}")
+
+    if not concepts:
+        st.info("暂无动态概念数据，请点击上方「重新提取今日概念」。")
+        return
+
+    rows = []
+    for c in concepts:
+        name = c.get("name", "")
+        catalyst = c.get("catalyst", "")
+        stocks = c.get("stocks") or []
+        if not stocks:
+            rows.append({"概念": name, "核心催化剂（AI总结）": catalyst,
+                         "相关个股": "—", "当日涨跌幅": None, "成交额(亿)": None})
+            continue
+        for s in stocks:
+            rows.append({
+                "概念": name,
+                "核心催化剂（AI总结）": catalyst,
+                "相关个股": f"{s.get('name', '')} ({s.get('code', '')})",
+                "当日涨跌幅": s.get("change_pct"),
+                "成交额(亿)": s.get("turnover"),
+            })
+
+    df = pd.DataFrame(rows)
+    st.dataframe(df, hide_index=True, column_config={
+        "当日涨跌幅": st.column_config.NumberColumn("当日涨跌幅", format="%+.2f%%"),
+        "成交额(亿)": st.column_config.NumberColumn("成交额(亿)", format="%.2f"),
     })
-    st.dataframe(placeholder, hide_index=True)
-    st.caption("占位示例：待接入大模型每日概念提取与行情数据，本表仅为布局演示。")
 
 
 # 已验证分类色（散点气泡前三槽，全配对通过）与墨色

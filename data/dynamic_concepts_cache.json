@@ -1,76 +1,22 @@
 {
-  "updated_at": "2026-09-17 14:26:41",
+  "updated_at": "2026-09-17 14:56:34",
   "source": "Wind 资讯 + 大模型动态概念提取",
   "concepts": [
     {
-      "name": "创新药",
-      "catalyst": "中报显示头部创新药企业新产品驱动收入快速增长，板块集体爆发。",
+      "name": "CRO",
+      "catalyst": "港股生物科技大涨带动，创新药研发外包景气预期升温",
       "stocks": [
-        {
-          "name": "金石亚药",
-          "code": "300434.SZ",
-          "change_pct": 19.98,
-          "turnover": 5.04
-        },
         {
           "name": "百花医药",
           "code": "600721.SH",
           "change_pct": 10.01,
-          "turnover": 10.31
-        },
-        {
-          "name": "万邦医药",
-          "code": "—",
-          "change_pct": null,
-          "turnover": null
+          "turnover": 10.39
         },
         {
           "name": "近岸蛋白",
           "code": "688137.SH",
-          "change_pct": 18.25,
-          "turnover": 9.76
-        }
-      ]
-    },
-    {
-      "name": "工业母机",
-      "catalyst": "A股工业母机概念盘中异动拉升，华东数控直线涨停。",
-      "stocks": [
-        {
-          "name": "华东数控",
-          "code": "002248.SZ",
-          "change_pct": 4.98,
-          "turnover": 3.56
-        },
-        {
-          "name": "华中数控",
-          "code": "300161.SZ",
-          "change_pct": 3.3,
-          "turnover": 1.19
-        },
-        {
-          "name": "科德数控",
-          "code": "688305.SH",
-          "change_pct": 1.46,
-          "turnover": 1.28
-        }
-      ]
-    },
-    {
-      "name": "CRO",
-      "catalyst": "创新药产业链活跃，CRO概念股走强带动医药研发服务板块反弹。",
-      "stocks": [
-        {
-          "name": "南华生物",
-          "code": "000504.SZ",
-          "change_pct": 10.04,
-          "turnover": 1.07
-        },
-        {
-          "name": "金石亚药",
-          "code": "300434.SZ",
-          "change_pct": 19.98,
-          "turnover": 5.04
+          "change_pct": 18.75,
+          "turnover": 10.22
         },
         {
           "name": "万邦医药",
@@ -81,44 +27,14 @@
         {
           "name": "义翘神州",
           "code": "301047.SZ",
-          "change_pct": 6.21,
-          "turnover": 9.68
-        }
-      ]
-    },
-    {
-      "name": "汽车整车",
-      "catalyst": "汽车整车板块低开高走，多股涨停，资金在低位方向寻找机会。",
-      "stocks": [
-        {
-          "name": "众泰汽车",
-          "code": "000980.SZ",
-          "change_pct": 10.23,
-          "turnover": 14.24
-        },
-        {
-          "name": "安凯客车",
-          "code": "000868.SZ",
-          "change_pct": 10.03,
-          "turnover": 2.03
-        },
-        {
-          "name": "海马汽车",
-          "code": "—",
-          "change_pct": null,
-          "turnover": null
-        },
-        {
-          "name": "赛力斯",
-          "code": "601127.SH",
-          "change_pct": 3.78,
-          "turnover": 14.74
+          "change_pct": 6.01,
+          "turnover": 10.45
         }
       ]
     },
     {
       "name": "粮食概念",
-      "catalyst": "粮食概念板块探底回升，种业股领涨，转基因方向活跃。",
+      "catalyst": "农业板块探底回升，转基因与粮食安全政策预期发酵",
       "stocks": [
         {
           "name": "敦煌种业",
@@ -130,85 +46,97 @@
           "name": "金健米业",
           "code": "600127.SH",
           "change_pct": 9.97,
-          "turnover": 23.58
+          "turnover": 23.69
         },
         {
           "name": "秋乐种业",
           "code": "920087.BJ",
-          "change_pct": 12.49,
-          "turnover": 3.8
+          "change_pct": 14.56,
+          "turnover": 4.17
         },
         {
           "name": "神农种业",
           "code": "300189.SZ",
-          "change_pct": 7.97,
-          "turnover": 17.61
+          "change_pct": 8.29,
+          "turnover": 19.17
         }
       ]
     },
     {
-      "name": "AI制药",
-      "catalyst": "创新药与AI制药概念盘中活跃，资金关注医药智能化方向。",
+      "name": "工业母机",
+      "catalyst": "工业母机概念盘中异动拉升，中高端数控机床自主可控关注升温",
+      "stocks": [
+        {
+          "name": "华东数控",
+          "code": "002248.SZ",
+          "change_pct": 5.31,
+          "turnover": 4.06
+        },
+        {
+          "name": "华中数控",
+          "code": "300161.SZ",
+          "change_pct": 3.3,
+          "turnover": 1.29
+        },
+        {
+          "name": "科德数控",
+          "code": "688305.SH",
+          "change_pct": 1.57,
+          "turnover": 1.42
+        }
+      ]
+    },
+    {
+      "name": "创新药",
+      "catalyst": "港股生物科技指数大涨带动，A股创新药及AI制药概念活跃",
       "stocks": [
         {
           "name": "金石亚药",
           "code": "300434.SZ",
           "change_pct": 19.98,
-          "turnover": 5.05
+          "turnover": 5.45
         },
         {
-          "name": "万邦医药",
-          "code": "—",
-          "change_pct": null,
-          "turnover": null
+          "name": "南华生物",
+          "code": "000504.SZ",
+          "change_pct": 10.04,
+          "turnover": 1.11
         },
         {
-          "name": "近岸蛋白",
-          "code": "688137.SH",
-          "change_pct": 18.58,
-          "turnover": 9.77
+          "name": "百花医药",
+          "code": "600721.SH",
+          "change_pct": 10.01,
+          "turnover": 10.41
+        },
+        {
+          "name": "义翘神州",
+          "code": "301047.SZ",
+          "change_pct": 6.16,
+          "turnover": 10.54
         }
       ]
     },
     {
-      "name": "玻纤",
-      "catalyst": "玻璃纤维板块盘中涨幅居前，周期品景气关注度提升。",
+      "name": "玻璃纤维",
+      "catalyst": "玻纤板块盘中活跃，供需边际改善预期下资金关注低位品种",
       "stocks": [
         {
           "name": "中国巨石",
           "code": "600176.SH",
-          "change_pct": 0.84,
-          "turnover": 158.18
+          "change_pct": -0.21,
+          "turnover": 175.14
         },
         {
           "name": "长海股份",
           "code": "300196.SZ",
-          "change_pct": 4.71,
-          "turnover": 7.88
-        }
-      ]
-    },
-    {
-      "name": "覆铜板",
-      "catalyst": "覆铜板板块早盘调整，前期高频轮动品种出现分歧。",
-      "stocks": [
-        {
-          "name": "生益科技",
-          "code": "600183.SH",
-          "change_pct": -4.86,
-          "turnover": 109.63
+          "change_pct": 5.99,
+          "turnover": 8.92
         },
         {
-          "name": "华正新材",
-          "code": "603186.SH",
-          "change_pct": -7.48,
-          "turnover": 47.73
-        },
-        {
-          "name": "金安国纪",
-          "code": "—",
-          "change_pct": null,
-          "turnover": null
+          "name": "中材科技",
+          "code": "002080.SZ",
+          "change_pct": 4.81,
+          "turnover": 57.56
         }
       ]
     }

@@ -188,6 +188,7 @@ def summarize_news(title: str, content: str, max_chars: int = 60) -> str | None:
     payload = {
         "model": LLM_MODEL,
         "max_tokens": 2000,
+        "thinking": {"type": "disabled"},  # 跳过推理模型 thinking，避免摘要被吞
         "messages": [{"role": "user", "content": prompt}],
     }
     headers = {
@@ -196,7 +197,7 @@ def summarize_news(title: str, content: str, max_chars: int = 60) -> str | None:
         "anthropic-version": "2023-06-01",
     }
     try:
-        resp = requests.post(f"{LLM_BASE_URL}/v1/messages", json=payload, headers=headers, timeout=90)
+        resp = requests.post(f"{LLM_BASE_URL}/v1/messages", json=payload, headers=headers, timeout=300)
         resp.raise_for_status()
         data = resp.json()
         text = "".join(

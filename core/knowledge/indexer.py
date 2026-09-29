@@ -9,8 +9,10 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import re
 import shutil
+import zipfile
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -384,6 +386,133 @@ def scan_materials_dir(*, user: str | None = None) -> dict[str, Any]:
         if res.get("status") in (PARSE_READY, PARSE_NEEDS_OCR, PARSE_FAILED):
             ingested += 1
     return {"scanned": scanned, "ingested": ingested, "skipped": skipped, "results": results}
+
+
+SUPPORTED_EXTENSIONS = {"pdf", "docx", "md", "markdown", "txt", "rtf", "json"}
+
+
+def scan_folder_recursive(folder: str, *, user: str | None = None) -> dict[str, Any]:
+    """递归批量导入一个文件夹（保留相对路径与子文件夹分类标签）。
+
+    - 跳过隐藏文件 / 符号链接 / 不支持格式（不支持格式单独列出）。
+    - 单个文件失败不中断整批；重复内容（按哈希）不重复入库。
+    - 子文件夹名作为分类标签（industry_topics），不据此编造作者/机构/日期。
+    返回 {scanned, ingested, duplicate, failed, ocr, unsupported, results}。
+    """
+    require_admin(user, "批量导入资料")
+    root = Path(folder)
+    empty = {"scanned": 0, "ingested": 0, "duplicate": 0, "failed": 0,
+             "ocr": 0, "unsupported": [], "results": []}
+    if not root.is_dir():
+        return empty
+
+    store = storage.get_store()
+    known_hashes = {d.file_hash for d in store.list_documents()}
+
+    scanned = ingested = duplicate = failed = ocr = 0
+    unsupported: list[str] = []
+    results: list[dict] = []
+
+    for p in sorted(root.rglob("*")):
+        if not p.is_file() or p.is_symlink():
+            continue
+        if p.name.startswith("."):
+            continue
+        rel = p.relative_to(root)
+        ext = p.suffix.lower().lstrip(".")
+        if ext not in SUPPORTED_EXTENSIONS:
+            unsupported.append(str(rel))
+            continue
+        scanned += 1
+        try:
+            h = sha256_bytes(_read(str(p)))
+        except OSError:
+            failed += 1
+            results.append({"file": str(rel), "status": "失败", "message": "无法读取"})
+            continue
+        if h in known_hashes:
+            duplicate += 1
+            results.append({"file": str(rel), "status": "duplicate", "message": "已入库（按内容哈希）"})
+            continue
+        category = rel.parts[0] if len(rel.parts) > 1 else ""
+        res = ingest_file(str(p), user=user, industry_topics=[category] if category else None)
+        results.append({"file": str(rel), **res})
+        st = res.get("status")
+        if st in (PARSE_READY, PARSE_NEEDS_OCR, PARSE_FAILED):
+            known_hashes.add(h)
+        if st == PARSE_READY:
+            ingested += 1
+        elif st == PARSE_NEEDS_OCR:
+            ocr += 1
+        elif st == "duplicate":
+            duplicate += 1
+        else:
+            failed += 1
+
+    return {"scanned": scanned, "ingested": ingested, "duplicate": duplicate,
+            "failed": failed, "ocr": ocr, "unsupported": unsupported, "results": results}
+
+
+def import_zip_bytes(
+    data: bytes,
+    *,
+    user: str | None = None,
+    max_files: int = 5000,
+    max_total_bytes: int = 8 * 1024 ** 3,
+) -> dict[str, Any]:
+    """管理员 ZIP 批量导入：解压到资料目录（保留结构）后递归入库。
+
+    安全检查：路径越界（绝对路径 / ..）、文件数上限、解压总大小上限。
+    返回与 scan_folder_recursive 一致的报告，外加 ok / error。
+    """
+    require_admin(user, "ZIP 批量导入")
+    materials = config.materials_dir()
+    materials.mkdir(parents=True, exist_ok=True)
+
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile:
+        return {"ok": False, "error": "不是有效的 ZIP 文件"}
+
+    entries = [e for e in zf.infolist() if not e.is_dir()]
+    if len(entries) > max_files:
+        zf.close()
+        return {"ok": False, "error": f"ZIP 内文件数 {len(entries)} 超过上限 {max_files}"}
+    total = sum(e.file_size for e in entries)
+    if total > max_total_bytes:
+        zf.close()
+        return {"ok": False, "error": f"解压后总大小 {total / 1e9:.1f} GB 超过上限 {max_total_bytes / 1e9:.0f} GB"}
+
+    extracted_dirs: set[str] = set()
+    try:
+        for e in entries:
+            norm = Path(e.filename)
+            if norm.is_absolute() or ".." in norm.parts:
+                return {"ok": False, "error": f"ZIP 包含非法路径（越界）：{e.filename}"}
+            if norm.suffix.lower().lstrip(".") not in SUPPORTED_EXTENSIONS:
+                continue
+            dest = materials / norm
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            with zf.open(e) as src, open(dest, "wb") as out:
+                shutil.copyfileobj(src, out)
+            extracted_dirs.add(norm.parts[0] if len(norm.parts) > 1 else ".")
+    finally:
+        zf.close()
+
+    if not extracted_dirs:
+        return {"ok": False, "error": "ZIP 内没有可导入的支持格式文件（pdf/docx/md/txt/rtf/json）"}
+
+    report = {"scanned": 0, "ingested": 0, "duplicate": 0, "failed": 0,
+              "ocr": 0, "unsupported": [], "results": []}
+    for d in sorted(extracted_dirs):
+        target = materials if d == "." else materials / d
+        r = scan_folder_recursive(str(target), user=user)
+        for k in ("scanned", "ingested", "duplicate", "failed", "ocr"):
+            report[k] += r.get(k, 0)
+        report["unsupported"] += r.get("unsupported", [])
+        report["results"] += r.get("results", [])
+    report["ok"] = True
+    return report
 
 
 def reindex_all(*, user: str | None = None) -> dict[str, Any]:

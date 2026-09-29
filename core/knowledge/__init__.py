@@ -22,10 +22,12 @@ from .auth import (  # noqa: F401
 from .commentary import build_commentary, list_commentaries, save_commentary  # noqa: F401
 from .indexer import (  # noqa: F401
     delete_document,
+    import_zip_bytes,
     ingest_bytes,
     ingest_file,
     reindex_all,
     retry_document,
+    scan_folder_recursive,
     scan_materials_dir,
     set_document_public,
 )
@@ -87,6 +89,8 @@ __all__ = [
     "delete_document",
     "retry_document",
     "scan_materials_dir",
+    "scan_folder_recursive",
+    "import_zip_bytes",
     "reindex_all",
     "set_document_public",
     "add_viewpoint",

@@ -949,6 +949,21 @@ def _render_kb_materials_page(user: str | None) -> None:
             for s in report.get("skipped", []):
                 st.caption(f"跳过：{s}")
 
+    with st.expander("📦 ZIP 批量导入（保留目录结构）", expanded=False):
+        st.caption("将整个文件夹压缩为 ZIP 后上传；子文件夹名作为分类标签，重复内容按哈希自动跳过。")
+        zip_up = st.file_uploader("选择 ZIP", type=["zip"], key="kb_zip_upload", label_visibility="collapsed")
+        if zip_up is not None and st.button("导入 ZIP", key="kb_zip_btn"):
+            with st.spinner("正在解压并入库，请稍候…"):
+                r = kb.import_zip_bytes(zip_up.getvalue(), user=user)
+            if not r.get("ok"):
+                st.error(r.get("error"))
+            else:
+                st.success(f"完成：扫描 {r['scanned']}，入库 {r['ingested']}，重复 {r['duplicate']}，"
+                           f"失败 {r['failed']}，需 OCR {r['ocr']}")
+                if r.get("unsupported"):
+                    st.caption(f"不支持格式（{len(r['unsupported'])} 个）：" + "、".join(r["unsupported"][:10]))
+                st.rerun()
+
     if not docs:
         st.info("尚未导入研究资料。可通过上方「上传材料」或把文件放入资料目录后「扫描资料目录」。")
         return

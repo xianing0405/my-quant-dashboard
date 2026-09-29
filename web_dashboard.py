@@ -361,6 +361,12 @@ def _render_asset_df(assets: list[dict], names: set[str]) -> None:
     st.dataframe(df, hide_index=True)
 
 
+def _extract_generated_at(text: str) -> str | None:
+    """从报告头提取「生成时间：YYYY-MM-DD HH:MM:SS」（区别于数据截止时间）。"""
+    m = re.search(r"生成时间[：:]\s*(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})", text)
+    return m.group(1) if m else None
+
+
 def _render_macro_page() -> None:
     st.subheader("🌍 宏观与大类资产")
 
@@ -384,7 +390,11 @@ def _render_macro_page() -> None:
     sections = _split_sections(text)
 
     mtime = datetime.fromtimestamp(latest.stat().st_mtime)
-    st.caption(f"当前展示：{latest.name} · 生成于 {mtime:%Y-%m-%d %H:%M:%S}")
+    generated = _extract_generated_at(text) or f"{mtime:%Y-%m-%d %H:%M:%S}"
+    if choice != labels[0]:
+        st.warning(f"⚠️ 历史资料（非最新）：{latest.name} · 生成于 {generated}")
+    else:
+        st.caption(f"当前展示最新报告：{latest.name} · 生成于 {generated}")
 
     # 顶部核心指标（8 个，分两行）
     _render_metric_row(_build_metrics(assets, fedwatch))

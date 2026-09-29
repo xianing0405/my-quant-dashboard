@@ -819,17 +819,17 @@ def _render_kb_stats_bar() -> dict:
 
 
 def _evidence_card(hit: dict, idx: int | None = None) -> None:
+    """证据卡：默认折叠，仅显示文件名 + 页码 + 简短预览，点击展开全文。"""
     title = hit.get("title") or ""
-    ver = hit.get("document_version")
     date = hit.get("publish_date") or "日期未知"
-    author = hit.get("author") or "作者未知"
-    cat = hit.get("source_category") or ""
     loc = f"p.{hit['page_number']}" if hit.get("page_number") else (hit.get("position") or "—")
-    header = f"**证据{(' ' + str(idx)) if idx else ''}** · 《{title}》v{ver} · {date} · {author} · {cat} · {loc}"
-    st.markdown(header)
-    st.markdown(f"> {hit['text']}")
-    st.caption(f"evidence_id: `{hit['evidence_id']}` · 相关度 {hit['score']:.3f}（非事实可信概率）"
-               + (f" · {hit['provenance']}" if hit.get("provenance") else ""))
+    preview = (hit.get("text") or "").strip().replace("\n", " ")[:80]
+    label = f"证据{idx if idx else ''} · 《{title}》 · {loc}"
+    with st.expander(label, expanded=False):
+        st.caption(f"{date} · evidence_id: `{hit['evidence_id']}` · 相关度 {hit.get('score', 0):.3f}（检索相关度，非事实可信概率）")
+        st.markdown(f"…{preview}…" if preview else "（无预览）")
+        st.markdown("---")
+        st.markdown(hit.get("text") or "")
 
 
 _QA_PROMPT = (
@@ -843,18 +843,27 @@ _QA_PROMPT = (
 )
 
 
+_MAX_EVIDENCE_CHARS = 8000  # 发送给模型的总证据字符预算（不仅限 top_k）
+
+
 def _kb_generate_answer(query: str, hits: list[dict]) -> tuple[str, list[dict], list[int]]:
-    """带引用校验的回答：仅使用本次检索到的证据，编号不合法即忽略并提示。"""
+    """带引用校验的回答：仅使用本次检索到的证据，编号不合法即明确标注为不可核验。"""
     if not hits:
         return ("在当前检索范围内未找到支持材料，无法依据研究知识库回答，也不作凭空判断。", [], [])
 
-    context = "\n\n".join(
-        f"[证据:{i}]《{h['title']}》v{h.get('document_version')} "
-        f"{h.get('publish_date') or '日期未知'} {h.get('author') or ''} "
-        + (f"p.{h['page_number']}" if h.get("page_number") else (h.get("position") or ""))
-        + f"\n{h['text']}"
-        for i, h in enumerate(hits, 1)
-    )
+    # 按总长度预算截断证据，避免把无关整页内容全部发给模型
+    parts: list[str] = []
+    budget = 0
+    for i, h in enumerate(hits, 1):
+        loc = f"p.{h['page_number']}" if h.get("page_number") else (h.get("position") or "")
+        block = (f"[证据:{i}]《{h['title']}》v{h.get('document_version')} "
+                 f"{h.get('publish_date') or '日期未知'} {h.get('author') or ''} {loc}\n{h['text']}")
+        if budget + len(block) > _MAX_EVIDENCE_CHARS and parts:
+            break
+        parts.append(block)
+        budget += len(block)
+    context = "\n\n".join(parts)
+
     answer = kb_llm.complete(_QA_PROMPT.format(context=context, query=query), max_tokens=2000)
     if not answer:
         return ("（模型不可用或调用失败：未配置 ANTHROPIC_AUTH_TOKEN 或接口异常。"
@@ -870,7 +879,8 @@ def _kb_generate_answer(query: str, hits: list[dict]) -> tuple[str, list[dict], 
     cited = sorted(set(cited))
     invalid = sorted(set(invalid))
     if invalid:
-        answer += f"\n\n> ⚠️ 检测到无效引用编号 {invalid}（本次检索仅返回 {len(hits)} 条证据，已忽略）。"
+        answer += (f"\n\n> ⚠️ 检测到无效引用编号 {invalid}：本次仅提供 {len(hits)} 条证据，"
+                   f"编号 {invalid} 无对应证据，相关结论无法用检索材料支持，已标注为不可核验。")
     return answer, hits, cited
 
 
@@ -1020,6 +1030,9 @@ def _render_kb_qa_page(user: str | None) -> None:
         filters = _kb_filter_controls(docs)
         top_k = st.slider("返回证据条数", 1, 10, 5)
 
+    # 两种回答模式：仅「AI 综合回答」调用生成模型
+    mode = st.radio("回答模式", ["仅检索原文", "AI 综合回答"], horizontal=True, index=0)
+
     if "kb_qa_msgs" not in st.session_state:
         st.session_state.kb_qa_msgs = []
 
@@ -1043,7 +1056,12 @@ def _render_kb_qa_page(user: str | None) -> None:
                 hits = res["hits"]
                 if res.get("date_unknown_excluded"):
                     st.caption(f"⚠️ 有 {res['date_unknown_excluded']} 份日期未知的材料未纳入截止日期筛选")
-                answer, hits2, cited = _kb_generate_answer(query, hits)
+                if mode == "AI 综合回答":
+                    answer, hits2, cited = _kb_generate_answer(query, hits)
+                else:
+                    answer = f"共检索到 {len(hits)} 条相关原文（仅检索原文，未调用生成模型）。"
+                    hits2 = hits
+                    cited = []
             st.markdown(answer)
             for h in hits2:
                 _evidence_card(h, hits2.index(h) + 1)
@@ -1062,7 +1080,10 @@ def _render_kb_viewpoints_page(user: str | None) -> None:
                                format_func=lambda x: next((d["title"] for d in ready if d["document_id"] == x), x))
             if st.button("提取观点"):
                 with st.spinner("正在提取…"):
-                    r = kb.extract_viewpoints_from_document(sel, user)
+                    try:
+                        r = kb.extract_viewpoints_from_document(sel, user)
+                    except Exception as e:  # noqa: BLE001
+                        r = {"ok": False, "reason": f"提取失败：{e}"}
                 if r.get("ok"):
                     st.success(f"已提取 {r.get('count')} 条观点（待核验）")
                 else:
@@ -1214,6 +1235,19 @@ def _render_kb_commentary_page(user: str | None) -> None:
                     st.markdown(c["output_markdown"])
 
 
+def _render_model_usage() -> None:
+    """管理员可见：展示本进程实际模型调用统计（来自 API usage，不编造）。"""
+    u = kb_llm.usage_stats()
+    if not u["calls"]:
+        st.caption("模型调用：本进程尚无实际调用记录。")
+        return
+    st.caption(f"模型调用：{u['calls']} 次 · 输入 {u['total_input_tokens']} token · "
+               f"输出 {u['total_output_tokens']} token · 模型 {u['model']} · {u['base_url']}")
+    with st.expander("调用明细", expanded=False):
+        for c in u["last_calls"]:
+            st.caption(f"{c['ts']} · in {c['input_tokens']} / out {c['output_tokens']} · {c['model']}")
+
+
 def _render_knowledge_page() -> None:
     st.subheader("📚 研究知识库")
     mode = kb_config.access_mode()
@@ -1229,6 +1263,7 @@ def _render_knowledge_page() -> None:
     if is_admin:
         st.caption("✅ 已登录管理员：可查询全部资料并进行维护（上传/删除/公开范围/观点/点评）。")
         _render_kb_stats_bar()
+        _render_model_usage()
         tabs = st.tabs(["📥 资料管理", "💬 知识问答", "🧭 历史观点", "🗞️ 事件点评"])
         with tabs[0]:
             _render_kb_materials_page("admin")

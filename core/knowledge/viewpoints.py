@@ -42,7 +42,7 @@ _EXTRACT_PROMPT = """你是金融研究助理。请从下面给定的内部材�
 - conditions：成立条件（无则填 null）
 - risks：风险与反证（无则填 null）
 
-只输出 JSON 数组，不要任何解释文字。格式：{"viewpoints": [...]}
+只输出一个 JSON 对象，不要任何解释文字。格式：{{"viewpoints": [...]}}
 
 【材料片段】
 {text}

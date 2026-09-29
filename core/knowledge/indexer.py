@@ -369,6 +369,9 @@ def scan_materials_dir(*, user: str | None = None) -> dict[str, Any]:
     for p in sorted(materials.iterdir()):
         if not p.is_file():
             continue
+        if _is_instructional(p.name):
+            skipped.append(f"{p.name}（操作说明/索引，不进入检索）")
+            continue
         if p.suffix.lower().lstrip(".") not in supported:
             skipped.append(f"{p.name}（不支持的类型）")
             continue
@@ -389,6 +392,12 @@ def scan_materials_dir(*, user: str | None = None) -> dict[str, Any]:
 
 
 SUPPORTED_EXTENSIONS = {"pdf", "docx", "md", "markdown", "txt", "rtf", "json"}
+
+
+def _is_instructional(name: str) -> bool:
+    """操作说明 / 索引类文件：不进入研究检索索引，但保留磁盘原文件。"""
+    stem = Path(name).stem.lower()
+    return stem.startswith("readme") or "说明" in name or "索引" in name
 
 
 def scan_folder_recursive(
@@ -423,6 +432,8 @@ def scan_folder_recursive(
         if not p.is_file() or p.is_symlink():
             continue
         if p.name.startswith("."):
+            continue
+        if _is_instructional(p.name):
             continue
         rel = p.relative_to(root)
         ext = p.suffix.lower().lstrip(".")

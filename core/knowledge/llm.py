@@ -14,11 +14,17 @@ from __future__ import annotations
 
 import json
 import os
+import threading
+from datetime import datetime
 
 import requests
 
 _BASE_URL = (os.environ.get("ANTHROPIC_BASE_URL") or "https://api.deepseek.com/anthropic").rstrip("/")
 _MODEL = os.environ.get("ANTHROPIC_DEFAULT_HAIKU_MODEL") or "deepseek-v4-pro"
+
+# 实际模型调用统计（来自 API 返回的 usage，不编造；仅本进程内累计）
+_usage_log: list[dict] = []
+_usage_lock = threading.Lock()
 
 
 def _token() -> str | None:
@@ -27,6 +33,22 @@ def _token() -> str | None:
 
 def available() -> bool:
     return bool(_token())
+
+
+def usage_stats() -> dict:
+    """返回本进程累计的实际模型调用统计（请求次数 / 输入输出 token / 模型名）。"""
+    with _usage_lock:
+        calls = list(_usage_log)
+    total_in = sum(c.get("input_tokens") or 0 for c in calls)
+    total_out = sum(c.get("output_tokens") or 0 for c in calls)
+    return {
+        "calls": len(calls),
+        "total_input_tokens": total_in,
+        "total_output_tokens": total_out,
+        "model": _MODEL,
+        "base_url": _BASE_URL,
+        "last_calls": calls[-20:],
+    }
 
 
 def complete(prompt: str, *, max_tokens: int = 2000, system: str | None = None) -> str | None:
@@ -48,6 +70,15 @@ def complete(prompt: str, *, max_tokens: int = 2000, system: str | None = None) 
         resp = requests.post(f"{_BASE_URL}/v1/messages", json=payload, headers=headers, timeout=120)
         resp.raise_for_status()
         data = resp.json()
+        # 记录真实 usage（不编造；无 usage 字段时记 None）
+        u = data.get("usage") or {}
+        with _usage_lock:
+            _usage_log.append({
+                "model": _MODEL,
+                "input_tokens": u.get("input_tokens"),
+                "output_tokens": u.get("output_tokens"),
+                "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            })
         text = "".join(
             b.get("text", "") for b in (data.get("content") or [])
             if isinstance(b, dict) and b.get("type") == "text"

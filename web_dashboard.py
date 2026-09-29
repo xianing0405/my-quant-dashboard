@@ -1257,7 +1257,7 @@ def _render_knowledge_page() -> None:
     if mode == "disabled":
         st.warning("知识库未开放。")
         st.caption("管理员可配置「访客只读查询 + 管理员维护」后开放；当前未配置任何访问模式。")
-        _render_admin_login()
+        _render_admin_login("_disabled")
         return
 
     if is_admin:
@@ -1300,7 +1300,7 @@ def _render_knowledge_page() -> None:
 
     st.markdown("---")
     st.caption("资料维护（上传/删除/公开范围/观点/点评）仅管理员可操作。")
-    _render_admin_login()
+    _render_admin_login("_kb")
 
 
 def _admin_authed() -> bool:
@@ -1319,8 +1319,8 @@ def _require_admin() -> bool:
     return False
 
 
-def _render_admin_login() -> None:
-    """侧边栏管理员登录。未配置 ADMIN_PASSWORD 时显示只读说明，不暴露开发开关。"""
+def _render_admin_login(suffix: str = "") -> None:
+    """管理员登录。未配置 ADMIN_PASSWORD 时显示只读说明，不暴露开发开关。"""
     if _admin_authed():
         st.caption("✅ 已登录管理员，可执行数据更新")
         return
@@ -1328,8 +1328,8 @@ def _render_admin_login() -> None:
         st.caption("数据更新功能未配置管理口令，当前为访客只读模式。")
         return
     with st.expander("管理员登录"):
-        with st.form("admin_login_form"):
-            p = st.text_input("管理口令", type="password", key="admin_pwd")
+        with st.form(f"admin_login_form{suffix}"):
+            p = st.text_input("管理口令", type="password", key=f"admin_pwd{suffix}")
             if st.form_submit_button("登录"):
                 if hmac.compare_digest(str(p or ""), str(kb_config.get("ADMIN_PASSWORD") or "")):
                     st.session_state.admin_authed = True
@@ -1362,7 +1362,7 @@ def main() -> None:
         )
 
         st.markdown("---")
-        _render_admin_login()
+        _render_admin_login("_sb")
         if st.button("重新生成今日报告"):
             if _require_admin():
                 with st.spinner("正在生成今日报告，请稍候…"):

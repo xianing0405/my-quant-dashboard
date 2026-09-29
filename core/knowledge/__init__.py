@@ -11,7 +11,14 @@
     get_viewpoint_history(subject, user, *, cutoff_date, status) -> 历史观点
 """
 
-from .auth import KnowledgeAuthError, is_authorized, require_authorized  # noqa: F401
+from .auth import (  # noqa: F401
+    KnowledgeAuthError,
+    is_admin,
+    is_authorized,
+    require_admin,
+    require_authorized,
+    require_read,
+)
 from .commentary import build_commentary, list_commentaries, save_commentary  # noqa: F401
 from .indexer import (  # noqa: F401
     delete_document,
@@ -20,6 +27,7 @@ from .indexer import (  # noqa: F401
     reindex_all,
     retry_document,
     scan_materials_dir,
+    set_document_public,
 )
 from .retriever import (  # noqa: F401
     document_evidence,
@@ -41,11 +49,26 @@ from .viewpoints import (  # noqa: F401
 
 
 def stats(user: str | None = None) -> dict:
-    """知识库统计（文档数 / 解析失败数 / 日期范围 / 最近入库 / 检索模式）。"""
-    if user is not None:
-        require_authorized(user, "查看知识库统计")
+    """知识库统计。匿名只读时仅统计「已标记公开」的文档；管理员为全量。"""
+    scope = require_read(user, "查看知识库统计")
     from . import config  # noqa: PLC0415
-    s = dict(get_store().stats())
+    store = get_store()
+    if scope == "public":
+        docs = [d for d in store.list_documents() if d.permission_scope == "public"]
+        s = {
+            "documents": len(docs),
+            "parse_failed": 0,
+            "chunks": 0,
+            "viewpoints": 0,
+            "date_min": None,
+            "date_max": None,
+            "date_unknown": 0,
+            "latest_ready_at": None,
+            "public_only": True,
+        }
+    else:
+        s = dict(store.stats())
+        s["public_only"] = False
     s["retrieval_mode"] = config.retrieval_mode()
     s["access_mode"] = config.access_mode()
     s["storage_backend"] = config.storage_backend()
@@ -65,6 +88,7 @@ __all__ = [
     "retry_document",
     "scan_materials_dir",
     "reindex_all",
+    "set_document_public",
     "add_viewpoint",
     "extract_viewpoints_from_document",
     "set_viewpoint_status",
@@ -75,7 +99,10 @@ __all__ = [
     "save_commentary",
     "list_commentaries",
     "stats",
+    "is_admin",
     "is_authorized",
+    "require_admin",
     "require_authorized",
+    "require_read",
     "KnowledgeAuthError",
 ]

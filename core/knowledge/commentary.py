@@ -15,7 +15,7 @@ import re
 from typing import Any
 
 from . import llm, storage
-from .auth import require_authorized
+from .auth import require_admin
 from .models import SOURCE_AI, new_id
 from .retriever import search_materials
 from .viewpoints import get_viewpoint_history
@@ -79,7 +79,7 @@ def build_commentary(
     save: bool = False,
 ) -> dict[str, Any]:
     """执行一次事件点评，返回结构化结果（dict），可另存为观点记录。"""
-    require_authorized(user, "生成事件点评")
+    require_admin(user, "生成事件点评")
 
     event_text = (event_text or "").strip()
     if not event_text:
@@ -243,7 +243,7 @@ def save_commentary(
     cutoff_date: str | None,
     output_markdown: str,
 ) -> str:
-    require_authorized(user, "保存事件点评")
+    require_admin(user, "保存事件点评")
     cid = new_id("cmt")
     storage.get_store().add_commentary(
         cid,
@@ -260,5 +260,5 @@ def save_commentary(
 
 
 def list_commentaries(user: str | None) -> list[dict]:
-    require_authorized(user, "查看点评记录")
+    require_admin(user, "查看点评记录")
     return storage.get_store().list_commentaries()

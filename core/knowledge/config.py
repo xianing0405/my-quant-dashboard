@@ -85,12 +85,23 @@ def retrieval_mode() -> str:
 # ---------------------------------------------------------------------------
 # 权限配置
 # ---------------------------------------------------------------------------
-# open：本地开发用，允许匿名访问内部知识库。
-# password：需输入 KNOWLEDGE_ACCESS_PASSWORD 才能进入。
-# disabled（默认）：未配置认证时，内部资料功能不对匿名用户开放。
+# disabled（默认）：知识库不对匿名用户开放。
+# public_readonly（公网推荐）：访客可匿名查询「已标记公开」的资料，写操作仅管理员。
+# password：需输入 KNOWLEDGE_ACCESS_PASSWORD 才能查看；写操作仍仅管理员。
+# open：本地开发用，匿名即可查看全部（写操作仍仅管理员，不建议公网使用）。
 def access_mode() -> str:
     mode = (get("KNOWLEDGE_ACCESS_MODE") or "disabled").strip().lower()
-    return mode if mode in ("open", "password", "disabled") else "disabled"
+    return mode if mode in ("open", "password", "public_readonly", "disabled") else "disabled"
+
+
+def public_readonly_enabled() -> bool:
+    """是否启用「匿名只读查询公开资料」模式。"""
+    return access_mode() == "public_readonly"
+
+
+def admin_password() -> str | None:
+    """管理口令（与数据更新共用 ADMIN_PASSWORD），写操作与维护需以此登录。"""
+    return get("ADMIN_PASSWORD")
 
 
 def access_password() -> str | None:

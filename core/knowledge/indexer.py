@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from . import config, parsers, storage
+from .auth import require_admin
 from .models import (
     PARSE_FAILED,
     PARSE_NEEDS_OCR,
@@ -163,6 +164,7 @@ def _store_document(doc: Document) -> None:
 def ingest_file(
     path: str,
     *,
+    user: str | None = None,
     source_category: str = SOURCE_OTHER,
     publish_date: str | None = None,
     author: str | None = None,
@@ -172,6 +174,7 @@ def ingest_file(
     permission_scope: str = "internal",
 ) -> dict[str, Any]:
     """把单个文件入库。返回 {status, message, document_id, version, deduped}。"""
+    require_admin(user, "入库资料")
     store = storage.get_store()
     path = str(path)
     raw = _read(path)
@@ -262,6 +265,7 @@ def ingest_bytes(
     filename: str,
     data: bytes,
     *,
+    user: str | None = None,
     source_category: str = SOURCE_OTHER,
     publish_date: str | None = None,
     author: str | None = None,
@@ -271,6 +275,7 @@ def ingest_bytes(
     permission_scope: str = "internal",
 ) -> dict[str, Any]:
     """Streamlit 上传入口：先把字节保存到资料目录，再走 ingest_file。"""
+    require_admin(user, "上传资料")
     materials = config.materials_dir()
     materials.mkdir(parents=True, exist_ok=True)
     name = _safe_filename(filename)
@@ -282,6 +287,7 @@ def ingest_bytes(
     dest.write_bytes(data)
     return ingest_file(
         str(dest),
+        user=user,
         source_category=source_category,
         publish_date=publish_date,
         author=author,
@@ -292,8 +298,9 @@ def ingest_bytes(
     )
 
 
-def delete_document(document_id: str) -> None:
+def delete_document(document_id: str, *, user: str | None = None) -> None:
     """删除文档并同步清理其可检索片段与派生观点记录。"""
+    require_admin(user, "删除资料")
     store = storage.get_store()
     doc = store.get_document(document_id)
     if doc is None:
@@ -304,8 +311,23 @@ def delete_document(document_id: str) -> None:
     store.delete_document(document_id)
 
 
-def retry_document(document_id: str) -> dict[str, Any]:
+def set_document_public(document_id: str, public: bool, *, user: str | None = None) -> None:
+    """管理员开关：是否允许网站访客匿名查询该文档（permission_scope）。
+
+    关闭公开后，该文档立即退出匿名检索范围（检索与读取证据处均检查该标记）。
+    """
+    require_admin(user, "设置资料公开范围")
+    store = storage.get_store()
+    doc = store.get_document(document_id)
+    if doc is None:
+        return
+    doc.permission_scope = "public" if public else "internal"
+    store.upsert_document(doc)
+
+
+def retry_document(document_id: str, *, user: str | None = None) -> dict[str, Any]:
     """解析失败 / 需要 OCR 的文档重试（重新走解析管线）。"""
+    require_admin(user, "重试解析资料")
     store = storage.get_store()
     doc = store.get_document(document_id)
     if doc is None:
@@ -316,6 +338,7 @@ def retry_document(document_id: str) -> dict[str, Any]:
     store.delete_document(document_id)
     return ingest_file(
         doc.original_path,
+        user=user,
         source_category=doc.source_category,
         publish_date=doc.publish_date,
         author=doc.author,
@@ -326,8 +349,9 @@ def retry_document(document_id: str) -> dict[str, Any]:
     )
 
 
-def scan_materials_dir() -> dict[str, Any]:
+def scan_materials_dir(*, user: str | None = None) -> dict[str, Any]:
     """扫描资料目录，把尚未入库的文件入库（仅顶层，不递归）。返回报告。"""
+    require_admin(user, "扫描资料目录")
     materials = config.materials_dir()
     if not materials.is_dir():
         return {"scanned": 0, "ingested": 0, "skipped": [], "results": []}
@@ -355,15 +379,16 @@ def scan_materials_dir() -> dict[str, Any]:
         if h in known_hashes:
             skipped.append(f"{p.name}（已入库）")
             continue
-        res = ingest_file(str(p))
+        res = ingest_file(str(p), user=user)
         results.append({"file": p.name, **res})
         if res.get("status") in (PARSE_READY, PARSE_NEEDS_OCR, PARSE_FAILED):
             ingested += 1
     return {"scanned": scanned, "ingested": ingested, "skipped": skipped, "results": results}
 
 
-def reindex_all() -> dict[str, Any]:
+def reindex_all(*, user: str | None = None) -> dict[str, Any]:
     """重建全部索引（清空片段后按现有文档重解析）。用于结构变更后的迁移。"""
+    require_admin(user, "重建索引")
     store = storage.get_store()
     docs = store.list_documents()
     store.delete_document("__none__")  # no-op，保证连接初始化
@@ -373,7 +398,7 @@ def reindex_all() -> dict[str, Any]:
         if d.original_path and Path(d.original_path).is_file():
             store.delete_document(d.document_id)
             report.append({d.title: ingest_file(
-                d.original_path, source_category=d.source_category,
+                d.original_path, user=user, source_category=d.source_category,
                 publish_date=d.publish_date, author=d.author,
                 organization=d.organization, companies=d.companies,
                 industry_topics=d.industry_topics, permission_scope=d.permission_scope)})

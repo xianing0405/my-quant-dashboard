@@ -17,7 +17,7 @@ import re
 from typing import Any
 
 from . import llm, storage
-from .auth import require_authorized
+from .auth import require_admin
 from .models import (
     REL_CONFLICTS,
     REL_REVISES,
@@ -75,7 +75,7 @@ def add_viewpoint(
     relationships: list[dict] | None = None,
     is_ai_generated: bool = False,
 ) -> str:
-    require_authorized(user, "创建历史观点")
+    require_admin(user, "创建历史观点")
     vp = Viewpoint(
         viewpoint_id=new_id("vp"),
         research_subject=research_subject,
@@ -105,7 +105,7 @@ def extract_viewpoints_from_document(
     top_chunks: int = 8,
 ) -> dict[str, Any]:
     """用大模型从文档片段提取观点（默认「待核验」）。无模型时返回不可用状态。"""
-    require_authorized(user, "提取历史观点")
+    require_admin(user, "提取历史观点")
     if not llm.available():
         return {"ok": False, "reason": "模型不可用（未配置 ANTHROPIC_AUTH_TOKEN）", "created": []}
 
@@ -155,7 +155,7 @@ def get_viewpoint_history(
 
     返回 {viewpoints: [...], latest: {...}|None, date_unknown: N}
     """
-    require_authorized(user, "查看历史观点")
+    require_admin(user, "查看历史观点")
     store = storage.get_store()
     vps = store.list_viewpoints()  # 已按日期降序
 
@@ -187,7 +187,7 @@ def get_viewpoint_history(
 
 
 def get_viewpoint(viewpoint_id: str, user: str | None) -> dict | None:
-    require_authorized(user, "查看历史观点")
+    require_admin(user, "查看历史观点")
     vp = storage.get_store().get_viewpoint(viewpoint_id)
     return vp.to_dict() if vp else None
 
@@ -200,7 +200,7 @@ def set_viewpoint_status(
     note: str | None = None,
 ) -> None:
     """确认 / 修订 / 推翻观点。修订或推翻时记录与旧观点的关系，保留旧记录。"""
-    require_authorized(user, "确认或修正历史观点")
+    require_admin(user, "确认或修正历史观点")
     store = storage.get_store()
     vp = store.get_viewpoint(viewpoint_id)
     if vp is None:
@@ -239,7 +239,7 @@ def set_viewpoint_status(
 
 
 def update_viewpoint(user: str | None, viewpoint_id: str, **fields) -> None:
-    require_authorized(user, "修正历史观点")
+    require_admin(user, "修正历史观点")
     store = storage.get_store()
     vp = store.get_viewpoint(viewpoint_id)
     if vp is None:
@@ -252,13 +252,13 @@ def update_viewpoint(user: str | None, viewpoint_id: str, **fields) -> None:
 
 
 def delete_viewpoint(user: str | None, viewpoint_id: str) -> None:
-    require_authorized(user, "删除历史观点")
+    require_admin(user, "删除历史观点")
     storage.get_store().delete_viewpoint(viewpoint_id)
 
 
 def viewpoint_with_evidence(viewpoint_id: str, user: str | None) -> dict[str, Any]:
     """给定观点，解析其支持依据与相关证据（含可能冲突的材料）。"""
-    require_authorized(user, "查看观点依据")
+    require_admin(user, "查看观点依据")
     from .retriever import read_evidence, search_materials  # noqa: PLC0415
 
     store = storage.get_store()

@@ -29,7 +29,7 @@ from core.knowledge import storage  # noqa: E402
 from core.knowledge.auth import KnowledgeAuthError  # noqa: E402
 from core.knowledge.models import PARSE_NEEDS_OCR, PARSE_READY  # noqa: E402
 
-USER = "tester"
+USER = "admin"
 
 
 @pytest.fixture()
@@ -88,7 +88,7 @@ def test_pdf_page_number(env):
         "Page one: SiC demand is rising.",
         "Page two: team view: SiC valuation is cheap.",
     ])
-    r = kb.ingest_file(str(pdf), source_category="外部研报", publish_date="2026-09-10")
+    r = kb.ingest_file(str(pdf), user=USER, source_category="外部研报", publish_date="2026-09-10")
     assert r["status"] == PARSE_READY
 
     res = kb.search_materials("SiC valuation cheap", USER, top_k=5)
@@ -112,7 +112,7 @@ def test_dialogue_roles(env):
             {"speaker": "王五", "role": "statement", "time": "2026-09-16T14:35:00", "text": "但需警惕产能过剩风险。"},
         ],
     }, ensure_ascii=False))
-    r = kb.ingest_file(str(d), source_category="对话", publish_date="2026-09-16")
+    r = kb.ingest_file(str(d), user=USER, source_category="对话", publish_date="2026-09-16")
     assert r["status"] == PARSE_READY
 
     detail = kb.document_evidence(r["document_id"], USER)
@@ -162,8 +162,8 @@ def test_date_cutoff(env):
     b = env / "materials" / "B_20260925.txt"
     _write(a, "碳化硅 需求上行")
     _write(b, "碳化硅 需求上行 最新数据")
-    kb.ingest_file(str(a), source_category="内部观点", publish_date="2026-09-10")
-    kb.ingest_file(str(b), source_category="内部观点", publish_date="2026-09-25")
+    kb.ingest_file(str(a), user=USER, source_category="内部观点", publish_date="2026-09-10")
+    kb.ingest_file(str(b), user=USER, source_category="内部观点", publish_date="2026-09-25")
 
     res = kb.search_materials("碳化硅", USER, top_k=10, filters={"date_to": "2026-09-20"})
     titles = {h["title"] for h in res["hits"]}
@@ -174,7 +174,7 @@ def test_date_cutoff(env):
 def test_date_unknown_flagged(env):
     a = env / "materials" / "nodate.txt"
     _write(a, "碳化硅 需求")
-    kb.ingest_file(str(a), source_category="内部观点", publish_date=None)
+    kb.ingest_file(str(a), user=USER, source_category="内部观点", publish_date=None)
     res = kb.search_materials("碳化硅", USER, top_k=10, filters={"date_to": "2026-09-20"})
     assert res["date_unknown_excluded"] == 1, "日期未知材料应单独计数而非悄悄纳入"
 
@@ -185,9 +185,9 @@ def test_date_unknown_flagged(env):
 def test_delete_removes_from_index(env):
     a = env / "materials" / "del.txt"
     _write(a, "光纤 景气度上行")
-    r = kb.ingest_file(str(a), source_category="内部观点", publish_date="2026-09-10")
+    r = kb.ingest_file(str(a), user=USER, source_category="内部观点", publish_date="2026-09-10")
     assert kb.search_materials("光纤", USER)["hits"]
-    kb.delete_document(r["document_id"])
+    kb.delete_document(r["document_id"], user=USER)
     assert kb.search_materials("光纤", USER)["hits"] == [], "删除后不应再召回"
 
 
@@ -197,7 +197,7 @@ def test_delete_removes_from_index(env):
 def test_auth_denies_anonymous(env, monkeypatch):
     a = env / "materials" / "secret.txt"
     _write(a, "内部敏感观点")
-    kb.ingest_file(str(a), source_category="内部观点", publish_date="2026-09-10")
+    kb.ingest_file(str(a), user=USER, source_category="内部观点", publish_date="2026-09-10")
 
     monkeypatch.setenv("KNOWLEDGE_ACCESS_MODE", "disabled")
     with pytest.raises(KnowledgeAuthError):
@@ -212,8 +212,8 @@ def test_auth_denies_anonymous(env, monkeypatch):
 def test_duplicate_upload_dedup(env):
     a = env / "materials" / "dup.txt"
     _write(a, "重复内容测试")
-    r1 = kb.ingest_file(str(a), source_category="内部观点", publish_date="2026-09-10")
-    r2 = kb.ingest_file(str(a), source_category="内部观点", publish_date="2026-09-10")
+    r1 = kb.ingest_file(str(a), user=USER, source_category="内部观点", publish_date="2026-09-10")
+    r2 = kb.ingest_file(str(a), user=USER, source_category="内部观点", publish_date="2026-09-10")
     assert r1["status"] == PARSE_READY
     assert r2["status"] == "duplicate"
     assert len(kb.list_documents(USER)) == 1
@@ -225,7 +225,7 @@ def test_duplicate_upload_dedup(env):
 def test_commentary_lists_evidence(env, monkeypatch):
     sup = env / "materials" / "支持_20260910.txt"
     _write(sup, "碳化硅：需求上行，若降息则受益。")
-    kb.ingest_file(str(sup), source_category="内部观点", publish_date="2026-09-10")
+    kb.ingest_file(str(sup), user=USER, source_category="内部观点", publish_date="2026-09-10")
 
     captured = {}
     from core.knowledge import llm as kb_llm
@@ -254,7 +254,7 @@ def test_parse_failure_status(env):
     bad = env / "materials" / "bad.bin"
     bad.write_bytes(b"\x00\x01\x02")
     # 不支持的扩展名：ingest_file 会失败（解析失败）
-    r = kb.ingest_file(str(bad), source_category="其他")
+    r = kb.ingest_file(str(bad), user=USER, source_category="其他")
     assert r["status"] in ("解析失败", "需要OCR")
 
 
@@ -266,7 +266,7 @@ def test_scanned_pdf_needs_ocr(env):
     fig = plt.figure()  # 无文本
     fig.savefig(str(pdf))
     plt.close(fig)
-    r = kb.ingest_file(str(pdf), source_category="外部研报")
+    r = kb.ingest_file(str(pdf), user=USER, source_category="外部研报")
     assert r["status"] == PARSE_NEEDS_OCR, "无文本层 PDF 应标记需要 OCR，而非成功"
 
 
@@ -275,7 +275,7 @@ def test_llm_unavailable_status(env, monkeypatch):
     monkeypatch.setattr(kb_llm, "available", lambda: False)
     a = env / "materials" / "x.txt"
     _write(a, "碳化硅 需求")
-    r = kb.ingest_file(str(a), source_category="内部观点", publish_date="2026-09-10")
+    r = kb.ingest_file(str(a), user=USER, source_category="内部观点", publish_date="2026-09-10")
     ext = kb.extract_viewpoints_from_document(r["document_id"], USER)
     assert ext["ok"] is False and "模型不可用" in ext["reason"]
 

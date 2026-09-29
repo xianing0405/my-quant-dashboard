@@ -754,11 +754,15 @@ def _parse_iso_date(s: str) -> str | None:
 
 def _kb_user() -> str | None:
     """当前会话的用户身份（供服务层权限校验）。"""
+    if _admin_authed():
+        return "admin"
     mode = kb_config.access_mode()
     if mode == "open":
         return "local-user"
     if mode == "password":
         return st.session_state.get("kb_auth_token")
+    if mode == "public_readonly":
+        return "anonymous"
     return None
 
 
@@ -842,7 +846,7 @@ _QA_PROMPT = (
 def _kb_generate_answer(query: str, hits: list[dict]) -> tuple[str, list[dict], list[int]]:
     """带引用校验的回答：仅使用本次检索到的证据，编号不合法即忽略并提示。"""
     if not hits:
-        return ("在当前检索范围内未找到支持材料，无法依据内部知识库回答，也不作凭空判断。", [], [])
+        return ("在当前检索范围内未找到支持材料，无法依据研究知识库回答，也不作凭空判断。", [], [])
 
     context = "\n\n".join(
         f"[证据:{i}]《{h['title']}》v{h.get('document_version')} "
@@ -921,6 +925,7 @@ def _render_kb_materials_page(user: str | None) -> None:
         if up is not None and st.button("入库", key="kb_upload_btn"):
             res = kb.ingest_bytes(
                 up.name, up.getvalue(),
+                user=user,
                 source_category=source_cat,
                 publish_date=_parse_iso_date(publish_date),
                 author=author or None,
@@ -936,7 +941,7 @@ def _render_kb_materials_page(user: str | None) -> None:
 
         if st.button("扫描资料目录（批量入库 raw_docs）", key="kb_scan"):
             with st.spinner("正在扫描资料目录…"):
-                report = kb.scan_materials_dir()
+                report = kb.scan_materials_dir(user=user)
             st.write(f"扫描 {report['scanned']} 个文件，新入库 {report['ingested']} 个")
             for r in report.get("results", []):
                 icon = {"可检索": "✅", "需要OCR": "🟡", "解析失败": "❌"}.get(r.get("status"), "•")
@@ -964,13 +969,18 @@ def _render_kb_materials_page(user: str | None) -> None:
             st.caption(f"出处: {d.get('provenance') or '—'}")
             if d.get("error_message"):
                 st.error(d["error_message"])
+            is_public = d.get("permission_scope") == "public"
+            if st.button("取消公开查询" if is_public else "设为公开（允许访客查询）", key=f"pub_{d['document_id']}"):
+                kb.set_document_public(d["document_id"], not is_public, user=user)
+                st.rerun()
+            st.caption("公开状态：" + ("✅ 允许访客匿名查询" if is_public else "🔒 仅管理员可查（访客不可见）"))
             col_a, col_b, col_c = st.columns(3)
             if d["parse_status"] in ("解析失败", "需要OCR") and col_a.button("重试解析", key=f"retry_{d['document_id']}"):
-                res = kb.retry_document(d["document_id"])
+                res = kb.retry_document(d["document_id"], user=user)
                 st.write(res.get("message"))
                 st.rerun()
             if col_b.button("删除（含片段与派生观点）", key=f"del_{d['document_id']}"):
-                kb.delete_document(d["document_id"])
+                kb.delete_document(d["document_id"], user=user)
                 st.rerun()
             if col_c.button("查看原文片段", key=f"prev_{d['document_id']}"):
                 detail = kb.document_evidence(d["document_id"], user)
@@ -987,8 +997,8 @@ def _render_kb_qa_page(user: str | None) -> None:
     st.markdown("#### 💬 知识问答")
     docs = kb.list_documents(user)
     if not docs:
-        st.info("尚未导入研究资料，无法进行基于内部材料的问答。请先在「资料管理」导入材料。")
-        st.caption("示例问题（需先有材料）：我们之前怎么看碳化硅？最近一次对利率的判断是什么？")
+        st.info("暂无可查询的研究资料。")
+        st.caption("管理员导入并标记为「允许访客查询」的资料后，访客即可在此提问。")
         return
 
     with st.expander("筛选条件", expanded=False):
@@ -1006,11 +1016,14 @@ def _render_kb_qa_page(user: str | None) -> None:
 
     query = st.chat_input("输入问题，例如：我们之前怎么看碳化硅？")
     if query:
+        if len(query.strip()) > 500:
+            st.warning("问题过长（最多 500 字），请精简后重试。")
+            return
         st.session_state.kb_qa_msgs.append({"role": "user", "content": query, "hits": []})
         with st.chat_message("user"):
             st.markdown(query)
         with st.chat_message("assistant"):
-            with st.spinner("正在检索内部知识库…"):
+            with st.spinner("正在检索研究知识库…"):
                 res = kb.search_materials(query, user, top_k=top_k, filters=filters)
                 hits = res["hits"]
                 if res.get("date_unknown_excluded"):
@@ -1187,24 +1200,57 @@ def _render_kb_commentary_page(user: str | None) -> None:
 
 
 def _render_knowledge_page() -> None:
-    st.subheader("📚 内部知识库（RAG 问答助手）")
-    if not _render_kb_gate():
+    st.subheader("📚 研究知识库")
+    mode = kb_config.access_mode()
+    is_admin = _admin_authed()
+    user = _kb_user()
+
+    if mode == "disabled":
+        st.warning("知识库未开放。")
+        st.caption("管理员可配置「访客只读查询 + 管理员维护」后开放；当前未配置任何访问模式。")
+        _render_admin_login()
         return
 
-    user = _kb_user()
-    _render_kb_stats_bar()
+    if is_admin:
+        st.caption("✅ 已登录管理员：可查询全部资料并进行维护（上传/删除/公开范围/观点/点评）。")
+        _render_kb_stats_bar()
+        tabs = st.tabs(["📥 资料管理", "💬 知识问答", "🧭 历史观点", "🗞️ 事件点评"])
+        with tabs[0]:
+            _render_kb_materials_page("admin")
+        with tabs[1]:
+            _render_kb_qa_page("admin")
+        with tabs[2]:
+            _render_kb_viewpoints_page("admin")
+        with tabs[3]:
+            _render_kb_commentary_page("admin")
+        return
 
-    tab_materials, tab_qa, tab_vp, tab_cmt = st.tabs(
-        ["📥 资料管理", "💬 知识问答", "🧭 历史观点", "🗞️ 事件点评"]
-    )
-    with tab_materials:
-        _render_kb_materials_page(user)
-    with tab_qa:
+    # 非管理员：只读（访客）
+    if mode == "public_readonly":
+        st.caption("访客可匿名查询管理员已公开的研究资料；资料维护仅管理员可操作。")
+        _render_kb_qa_page("anonymous")
+    elif mode == "password":
+        if not _kb_authorized():
+            with st.form("kb_login"):
+                pwd = st.text_input("访问口令", type="password")
+                submitted = st.form_submit_button("进入知识库")
+            if submitted:
+                if kb.verify_password(pwd or ""):
+                    st.session_state.kb_auth_token = kb.issue_session_token()
+                    st.rerun()
+                else:
+                    st.error("口令错误")
+            return
         _render_kb_qa_page(user)
-    with tab_vp:
-        _render_kb_viewpoints_page(user)
-    with tab_cmt:
-        _render_kb_commentary_page(user)
+    elif mode == "open":
+        _render_kb_qa_page(user)
+    else:
+        st.warning("知识库未开放。")
+        return
+
+    st.markdown("---")
+    st.caption("资料维护（上传/删除/公开范围/观点/点评）仅管理员可操作。")
+    _render_admin_login()
 
 
 def _admin_authed() -> bool:
@@ -1261,7 +1307,7 @@ def main() -> None:
                 "🏭 行业动态 (细分产业)",
                 "📈 深度研究可视化",
                 "📊 因子分析 (待建)",
-                "📚 内部知识库",
+                "📚 研究知识库",
             ],
         )
 

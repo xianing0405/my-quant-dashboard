@@ -17,7 +17,7 @@ import re
 from typing import Any
 
 from . import config, storage
-from .auth import require_authorized
+from .auth import require_read
 from .models import Evidence
 
 _WORD_RE = re.compile(r"[a-zA-Z0-9]+")
@@ -205,7 +205,10 @@ def search_materials(
 
     权限在此校验；未授权抛 KnowledgeAuthError。
     """
-    require_authorized(user, "搜索内部资料")
+    scope = require_read(user, "搜索资料")
+    if scope == "public":
+        filters = dict(filters or {})
+        filters["permission_scope"] = "public"
 
     query = (query or "").strip()
     if not query:
@@ -280,7 +283,7 @@ def read_evidence(
     context_radius: int = 2,
 ) -> dict[str, Any] | None:
     """读取一条证据及其前后文上下文，用于核对原文。"""
-    require_authorized(user, "读取内部资料原文")
+    scope = require_read(user, "读取资料原文")
 
     store = storage.get_store()
     # 定位片段
@@ -293,6 +296,8 @@ def read_evidence(
         return None
 
     doc = store.get_document(target.document_id)
+    if scope == "public" and (doc is None or doc.permission_scope != "public"):
+        return None
     neighbors = store.list_chunks(target.document_id)
     idx = next((i for i, n in enumerate(neighbors) if n.evidence_id == evidence_id), 0)
     lo, hi = max(0, idx - context_radius), min(len(neighbors), idx + context_radius + 1)
@@ -333,17 +338,22 @@ def read_evidence(
 
 
 def list_documents(user: str | None) -> list[dict]:
-    """列出可访问的文档（元数据），供资料管理页使用。"""
-    require_authorized(user, "查看内部资料列表")
-    return [d.to_dict() for d in storage.get_store().list_documents()]
+    """列出可访问的文档（元数据）。匿名只读时仅返回已标记公开的文档。"""
+    scope = require_read(user, "查看资料列表")
+    docs = storage.get_store().list_documents()
+    if scope == "public":
+        docs = [d for d in docs if d.permission_scope == "public"]
+    return [d.to_dict() for d in docs]
 
 
 def document_evidence(document_id: str, user: str | None) -> dict | None:
-    """读取某文档的元数据与全部原文片段（供原文预览）。"""
-    require_authorized(user, "查看资料原文")
+    """读取某文档的元数据与全部原文片段（供原文预览）。匿名只读时仅公开文档。"""
+    scope = require_read(user, "查看资料原文")
     store = storage.get_store()
     doc = store.get_document(document_id)
     if doc is None:
+        return None
+    if scope == "public" and doc.permission_scope != "public":
         return None
     return {
         "document": doc.to_dict(),

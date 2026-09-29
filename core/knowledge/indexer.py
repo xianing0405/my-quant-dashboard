@@ -391,12 +391,18 @@ def scan_materials_dir(*, user: str | None = None) -> dict[str, Any]:
 SUPPORTED_EXTENSIONS = {"pdf", "docx", "md", "markdown", "txt", "rtf", "json"}
 
 
-def scan_folder_recursive(folder: str, *, user: str | None = None) -> dict[str, Any]:
+def scan_folder_recursive(
+    folder: str,
+    *,
+    user: str | None = None,
+    root_category: str | None = None,
+) -> dict[str, Any]:
     """递归批量导入一个文件夹（保留相对路径与子文件夹分类标签）。
 
     - 跳过隐藏文件 / 符号链接 / 不支持格式（不支持格式单独列出）。
     - 单个文件失败不中断整批；重复内容（按哈希）不重复入库。
-    - 子文件夹名作为分类标签（industry_topics），不据此编造作者/机构/日期。
+    - root_category 作为整批主题分类标签；子文件夹名再追加为更细分类。
+    - 不据此编造作者/机构/日期。
     返回 {scanned, ingested, duplicate, failed, ocr, unsupported, results}。
     """
     require_admin(user, "批量导入资料")
@@ -435,7 +441,12 @@ def scan_folder_recursive(folder: str, *, user: str | None = None) -> dict[str, 
             results.append({"file": str(rel), "status": "duplicate", "message": "已入库（按内容哈希）"})
             continue
         category = rel.parts[0] if len(rel.parts) > 1 else ""
-        res = ingest_file(str(p), user=user, industry_topics=[category] if category else None)
+        tags: list[str] = []
+        if root_category:
+            tags.append(root_category)
+        if category:
+            tags.append(category)
+        res = ingest_file(str(p), user=user, industry_topics=tags or None)
         results.append({"file": str(rel), **res})
         st = res.get("status")
         if st in (PARSE_READY, PARSE_NEEDS_OCR, PARSE_FAILED):

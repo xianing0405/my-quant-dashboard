@@ -15,5 +15,9 @@ pandas==3.0.3
 # HTTP 请求（大模型接口调用 / 数据拉取）
 requests==2.34.2
 
+# 内部知识库：文档解析（PDF / DOCX）
+pypdf==6.19.0
+python-docx==1.2.0
+
 # 行情数据（预留：当前代码未直接 import，按需求包含）
 yfinance

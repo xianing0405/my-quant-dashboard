@@ -52,7 +52,14 @@ FALLBACK_CONCEPTS = [
 # ---------------------------------------------------------------------------
 # Wind 取数
 # ---------------------------------------------------------------------------
+def _live_data_enabled() -> bool:
+    """实时数据抓取开关：公开版默认关闭，需显式设置 ENABLE_LIVE_DATA 才放行。"""
+    return (os.environ.get("ENABLE_LIVE_DATA") or "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def _call_wind(server_type: str, tool: str, params: dict) -> dict:
+    if not _live_data_enabled():
+        return {"error": "实时数据抓取未启用（ENABLE_LIVE_DATA 未开启）"}
     cmd = _CLI + ["call", server_type, tool, json.dumps(params, ensure_ascii=False)]
     try:
         proc = subprocess.run(cmd, cwd=WIND_SKILL_DIR, capture_output=True, text=True, timeout=120)
@@ -173,6 +180,8 @@ def _extract_concepts_llm(news_text: str) -> list[dict]:
 def build_dynamic_concepts(news_text: str | None = None, use_llm: bool = True,
                            max_stocks_per_concept: int = 4) -> list[dict]:
     """扫描资讯，提取概念并关联个股行情，返回概念列表。"""
+    if not _live_data_enabled():
+        return []
     if news_text is None:
         news_text = _fetch_news_text()
 
@@ -228,6 +237,8 @@ def load_cache(path: Path | None = None) -> dict:
 
 def run_daily(news_text: str | None = None, use_llm: bool = True) -> dict:
     """跑一次完整提取并写缓存，返回缓存内容。"""
+    if not _live_data_enabled():
+        return {"updated_at": None, "source": "", "concepts": []}
     concepts = build_dynamic_concepts(news_text=news_text, use_llm=use_llm)
     save_cache(concepts)
     return load_cache()

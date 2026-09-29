@@ -19,6 +19,7 @@ Streamlit 仪表盘，侧边栏四大模块导航：
 """
 from __future__ import annotations
 
+import hmac
 import html
 import os
 import re
@@ -419,9 +420,10 @@ def _render_industry_page() -> None:
     )
 
     if st.button("🔄 重新提取今日概念", key="refresh_concepts"):
-        with st.spinner("正在扫描资讯并提取概念，请稍候（约 1-3 分钟）…"):
-            run_concept_daily()
-        st.rerun()
+        if _require_admin():
+            with st.spinner("正在扫描资讯并提取概念，请稍候（约 1-3 分钟）…"):
+                run_concept_daily()
+            st.rerun()
 
     cache = load_concept_cache()
     concepts = cache.get("concepts", [])
@@ -559,10 +561,10 @@ def _render_deep_research_page() -> None:
     st.subheader("📈 深度研究可视化")
     st.caption("基于 deep_research/deep_research_macro_policies.md 的硬数据，交互式呈现政策博弈与监管松绑。")
 
-    st.plotly_chart(_build_fiscal_calendar_fig(), use_container_width=True)
+    st.plotly_chart(_build_fiscal_calendar_fig(), width="stretch")
     st.caption("气泡大小 ∝ 政策规模（万亿）；灰色虚线为两会 / 政治局 / 人大常委会 / 中央经济工作会议的固定月份。")
     st.markdown("---")
-    st.plotly_chart(_build_basel_evolution_fig(), use_container_width=True)
+    st.plotly_chart(_build_basel_evolution_fig(), width="stretch")
     st.caption("19%（2023 提案）→ 9%（2024 修订）→ 3%–7%（2025.10 新框架 / 2026.3 重提案）。2025.6 压力测试 22 家大行中 21 家 SCB 下降。")
 
 
@@ -1070,6 +1072,41 @@ def _render_knowledge_page() -> None:
         _render_kb_commentary_page(user)
 
 
+def _admin_authed() -> bool:
+    """管理身份：需配置 ADMIN_PASSWORD 且已登录，用于触发数据更新（抓取/LLM 调用）。"""
+    pwd = kb_config.get("ADMIN_PASSWORD")
+    if not pwd:
+        return False
+    return bool(st.session_state.get("admin_authed"))
+
+
+def _require_admin() -> bool:
+    """更新操作门：已登录返回 True；否则提示并返回 False（访客只读）。"""
+    if _admin_authed():
+        return True
+    st.warning("更新操作需管理员身份，请先在侧边栏「管理员登录」输入管理口令。")
+    return False
+
+
+def _render_admin_login() -> None:
+    """侧边栏管理员登录。未配置 ADMIN_PASSWORD 时显示只读说明，不暴露开发开关。"""
+    if _admin_authed():
+        st.caption("✅ 已登录管理员，可执行数据更新")
+        return
+    if not kb_config.get("ADMIN_PASSWORD"):
+        st.caption("数据更新功能未配置管理口令，当前为访客只读模式。")
+        return
+    with st.expander("管理员登录"):
+        with st.form("admin_login_form"):
+            p = st.text_input("管理口令", type="password", key="admin_pwd")
+            if st.form_submit_button("登录"):
+                if hmac.compare_digest(str(p or ""), str(kb_config.get("ADMIN_PASSWORD") or "")):
+                    st.session_state.admin_authed = True
+                    st.rerun()
+                else:
+                    st.error("口令错误")
+
+
 # ---------------------------------------------------------------------------
 # 主入口
 # ---------------------------------------------------------------------------
@@ -1094,16 +1131,18 @@ def main() -> None:
         )
 
         st.markdown("---")
+        _render_admin_login()
         if st.button("重新生成今日报告"):
-            with st.spinner("正在生成今日报告，请稍候…"):
-                ok, msg, detail = _run_generator()
-            if ok:
-                st.success(msg)
-                st.rerun()
-            else:
-                st.error(msg)
-                if detail:
-                    st.code(detail)
+            if _require_admin():
+                with st.spinner("正在生成今日报告，请稍候…"):
+                    ok, msg, detail = _run_generator()
+                if ok:
+                    st.success(msg)
+                    st.rerun()
+                else:
+                    st.error(msg)
+                    if detail:
+                        st.code(detail)
 
     if page == "🌍 宏观与大类资产":
         _render_macro_page()

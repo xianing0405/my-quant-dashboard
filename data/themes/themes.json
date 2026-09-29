@@ -1,0 +1,31 @@
+{
+  "themes": [
+    {
+      "theme_id": "sic",
+      "name": "碳化硅",
+      "definition": "第三代半导体材料，用于新能源车与光伏的功率器件及射频器件；产业链覆盖衬底、外延、器件、模块。",
+      "aliases": ["SiC", "碳化硅衬底", "碳化硅器件", "碳化硅功率"],
+      "industry_chain": ["衬底", "外延", "器件", "模块"],
+      "status": "已确认",
+      "updated_at": "2026-09-29"
+    },
+    {
+      "theme_id": "fiber",
+      "name": "光纤",
+      "definition": "光通信传输介质，用于电信骨干网、城域网与数据中心互联；产业链覆盖光纤预制棒、光纤、光缆。",
+      "aliases": ["光纤光缆", "光通信", "光纤预制棒"],
+      "industry_chain": ["预制棒", "光纤", "光缆"],
+      "status": "已确认",
+      "updated_at": "2026-09-29"
+    },
+    {
+      "theme_id": "e-cloth",
+      "name": "电子布",
+      "definition": "覆铜板（CCL）的核心增强材料，用于 PCB 基材；受 AI 服务器与高端 PCB 需求驱动。",
+      "aliases": ["电子级玻纤布", "玻纤布", "CCL 用布"],
+      "industry_chain": ["玻纤纱", "电子布", "覆铜板", "PCB"],
+      "status": "已确认",
+      "updated_at": "2026-09-29"
+    }
+  ]
+}

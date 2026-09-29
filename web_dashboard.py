@@ -34,6 +34,7 @@ import requests
 import streamlit as st
 
 from core.industry_tracker import load_cache as load_concept_cache, run_daily as run_concept_daily
+from core.industry import themes as theme_lib
 from core import knowledge as kb
 from core.knowledge import config as kb_config
 from core.knowledge import models as kb_models
@@ -421,13 +422,55 @@ def _render_macro_page() -> None:
         st.markdown(text)
 
 
-def _render_industry_page() -> None:
-    st.subheader("🏭 细分产业与概念追踪")
+def _render_theme_detail(theme: dict) -> None:
+    """主题详情：定义、产业链、成员列表、原文证据、历史版本。"""
+    tid = theme["theme_id"]
+    st.markdown(f"##### {theme['name']}（`{tid}`）")
+    st.markdown(f"**定义**：{theme.get('definition') or '—'}")
+    aliases = theme.get("aliases") or []
+    chain = theme.get("industry_chain") or []
+    if aliases:
+        st.caption("别名：" + "、".join(aliases))
+    if chain:
+        st.caption("产业链环节：" + " → ".join(chain))
 
-    st.markdown(
-        "系统通过大模型每日读取新闻与研报，动态提取「碳化硅」「电子布」等"
-        "高频轮动概念，替代传统的申万行业分类。"
-    )
+    members = theme_lib.list_members(tid)
+    st.markdown("**成员列表**")
+    if members:
+        rows = [{
+            "公司": m.get("company_name"),
+            "证券代码": m.get("security_code") or "未匹配",
+            "市场": m.get("market") or "—",
+            "关联类型": m.get("association_type") or "—",
+            "状态": m.get("status"),
+            "生效日期": m.get("effective_from") or "—",
+            "版本": m.get("version"),
+            "说明": m.get("note") or "—",
+        } for m in members]
+        st.dataframe(pd.DataFrame(rows), hide_index=True)
+    else:
+        st.info("暂无成员（待补充证据后添加）。")
+
+    ev = theme_lib.list_evidence(tid)
+    st.markdown(f"**原文证据**（{len(ev)} 条）")
+    if ev:
+        for e in ev:
+            st.markdown(f"- `[{e.get('source_type')}]` {e.get('source_text')}（{e.get('source_date') or '无日期'}）")
+    else:
+        st.caption("暂无原文证据；成员保持「待核验」，不做已确认。")
+
+    hist = theme_lib.list_member_history(tid)
+    if hist:
+        st.markdown(f"**历史版本**（{len(hist)} 条）")
+        for h in hist:
+            st.caption(f"- {h.get('changed_at', '')}：{h.get('change_desc', '')}")
+
+
+def _render_concept_samples() -> None:
+    """每日概念提取（新闻关联样本）：保留原始日期与来源，不作为完整产业成员名单。"""
+    st.markdown("#### 🗞️ 每日概念提取（新闻关联样本）")
+    st.caption("由 Wind 资讯 + 大模型每日提取的高频轮动概念；仅为「新闻关联样本」，"
+               "不能直接当作完整产业成员名单。")
 
     if st.button("🔄 重新提取今日概念", key="refresh_concepts"):
         if _require_admin():
@@ -437,35 +480,54 @@ def _render_industry_page() -> None:
 
     cache = load_concept_cache()
     concepts = cache.get("concepts", [])
-    st.caption(f"数据来源：Wind 资讯 + 大模型动态提取 · 最近更新：{cache.get('updated_at') or '—'}")
+    st.caption(f"最近更新：{cache.get('updated_at') or '—'} · 来源：Wind 资讯 + 大模型动态提取")
 
     if not concepts:
-        st.info("暂无动态概念数据，请点击上方「重新提取今日概念」。")
+        st.info("暂无动态概念样本。")
         return
 
-    rows = []
     for c in concepts:
         name = c.get("name", "")
         catalyst = c.get("catalyst", "")
         stocks = c.get("stocks") or []
-        if not stocks:
-            rows.append({"概念": name, "核心催化剂（AI总结）": catalyst,
-                         "相关个股": "—", "当日涨跌幅": None, "成交额(亿)": None})
-            continue
-        for s in stocks:
-            rows.append({
-                "概念": name,
-                "核心催化剂（AI总结）": catalyst,
+        with st.expander(f"{name} · {catalyst}"):
+            if not stocks:
+                st.caption("暂无相关个股")
+                continue
+            srows = [{
                 "相关个股": f"{s.get('name', '')} ({s.get('code', '')})",
                 "当日涨跌幅": s.get("change_pct"),
                 "成交额(亿)": s.get("turnover"),
+            } for s in stocks]
+            st.dataframe(pd.DataFrame(srows), hide_index=True, column_config={
+                "当日涨跌幅": st.column_config.NumberColumn("当日涨跌幅", format="%+.2f%%"),
+                "成交额(亿)": st.column_config.NumberColumn("成交额(亿)", format="%.2f"),
             })
 
-    df = pd.DataFrame(rows)
-    st.dataframe(df, hide_index=True, column_config={
-        "当日涨跌幅": st.column_config.NumberColumn("当日涨跌幅", format="%+.2f%%"),
-        "成交额(亿)": st.column_config.NumberColumn("成交额(亿)", format="%.2f"),
-    })
+
+def _render_industry_page() -> None:
+    st.subheader("🏭 细分产业与主题库")
+
+    themes = theme_lib.theme_summary()
+    if themes:
+        st.markdown("#### 📚 产业主题库（长期维护）")
+        st.caption("主题为长期稳定研究单元；成员归属需原文证据，未核实标「待核验」。")
+        ov = [{
+            "主题": t["name"],
+            "成员总数": t["member_total"],
+            "已确认": t["member_confirmed"],
+            "待核验": t["member_pending"],
+            "主题行情": "暂无数据" if t["return_pct"] is None else f"{t['return_pct']:+.2f}%",
+            "上涨家数占比": "暂无数据" if t["up_ratio"] is None else f"{t['up_ratio']:.0%}",
+        } for t in themes]
+        st.dataframe(pd.DataFrame(ov), hide_index=True)
+
+        names = [t["name"] for t in themes]
+        sel = st.selectbox("选择主题查看详情", names)
+        _render_theme_detail(themes[names.index(sel)])
+
+    st.markdown("---")
+    _render_concept_samples()
 
 
 # 已验证分类色（散点气泡前三槽，全配对通过）与墨色

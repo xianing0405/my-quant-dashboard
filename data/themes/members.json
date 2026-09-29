@@ -1,0 +1,82 @@
+{
+  "members": [
+    {
+      "theme_id": "sic",
+      "company_name": "三安光电",
+      "security_code": null,
+      "market": "A股",
+      "association_type": "已有业务",
+      "status": "待核验",
+      "evidence_ids": [],
+      "effective_from": "2026-09-29",
+      "effective_to": null,
+      "version": 1,
+      "note": "来自原概念追踪器规则兜底示例，未经证券主表核实"
+    },
+    {
+      "theme_id": "sic",
+      "company_name": "天岳先进",
+      "security_code": null,
+      "market": "A股",
+      "association_type": "已有业务",
+      "status": "待核验",
+      "evidence_ids": [],
+      "effective_from": "2026-09-29",
+      "effective_to": null,
+      "version": 1,
+      "note": "来自原概念追踪器规则兜底示例，未经证券主表核实"
+    },
+    {
+      "theme_id": "sic",
+      "company_name": "露笑科技",
+      "security_code": null,
+      "market": "A股",
+      "association_type": "已有业务",
+      "status": "待核验",
+      "evidence_ids": [],
+      "effective_from": "2026-09-29",
+      "effective_to": null,
+      "version": 1,
+      "note": "来自原概念追踪器规则兜底示例，未经证券主表核实"
+    },
+    {
+      "theme_id": "e-cloth",
+      "company_name": "生益科技",
+      "security_code": null,
+      "market": "A股",
+      "association_type": "客户或供应商关系",
+      "status": "待核验",
+      "evidence_ids": [],
+      "effective_from": "2026-09-29",
+      "effective_to": null,
+      "version": 1,
+      "note": "覆铜板厂商，电子布为其上游材料；关联关系未经核实"
+    },
+    {
+      "theme_id": "e-cloth",
+      "company_name": "华正新材",
+      "security_code": null,
+      "market": "A股",
+      "association_type": "客户或供应商关系",
+      "status": "待核验",
+      "evidence_ids": [],
+      "effective_from": "2026-09-29",
+      "effective_to": null,
+      "version": 1,
+      "note": "覆铜板厂商，电子布为其上游材料；关联关系未经核实"
+    },
+    {
+      "theme_id": "e-cloth",
+      "company_name": "宏和科技",
+      "security_code": null,
+      "market": "A股",
+      "association_type": "已有业务",
+      "status": "待核验",
+      "evidence_ids": [],
+      "effective_from": "2026-09-29",
+      "effective_to": null,
+      "version": 1,
+      "note": "来自原概念追踪器规则兜底示例，未经证券主表核实"
+    }
+  ]
+}

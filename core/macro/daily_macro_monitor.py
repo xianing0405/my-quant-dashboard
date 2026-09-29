@@ -71,15 +71,8 @@ LLM_MODEL = os.environ.get("ANTHROPIC_DEFAULT_HAIKU_MODEL") or "deepseek-v4-pro"
 # ---------------------------------------------------------------------------
 # Wind 取数
 # ---------------------------------------------------------------------------
-def _live_data_enabled() -> bool:
-    """实时数据抓取开关：公开版默认关闭，需显式设置 ENABLE_LIVE_DATA 才放行。"""
-    return (os.environ.get("ENABLE_LIVE_DATA") or "").strip().lower() in ("1", "true", "yes", "on")
-
-
 def call_wind(server_type: str, tool: str, params: dict):
     """调用 Wind CLI，返回解析后的 dict 或 {'error': ...}。"""
-    if not _live_data_enabled():
-        return {"error": "实时数据抓取未启用（ENABLE_LIVE_DATA 未开启）"}
     cmd = CLI + ["call", server_type, tool, json.dumps(params, ensure_ascii=False)]
     try:
         proc = subprocess.run(cmd, cwd=WIND_SKILL_DIR, capture_output=True, text=True, timeout=120)

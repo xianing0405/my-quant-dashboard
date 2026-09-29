@@ -31,7 +31,3 @@ core/knowledge/store/
 
 # 测试夹具（本地测试生成的 PDF/DOCX 等，不进入版本库）
 tests/fixtures/
-
-# Wind 来源数据（付费数据，公开权限未确认，不进入公开仓库）
-core/macro/reports/
-data/dynamic_concepts_cache.json

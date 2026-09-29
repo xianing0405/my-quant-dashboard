@@ -10,8 +10,9 @@ Streamlit 仪表盘，侧边栏四大模块导航：
 
 说明：
 - 报告搜索目录见 REPORT_DIRS（默认 core/macro/reports/，另含项目根目录兜底）。
-- 公开版停用实时数据抓取：Wind 抓取入口已移除，服务端需 ENABLE_LIVE_DATA 才放行。
-- 模块一的核心指标从最新 .md 报告中正则提取，取不到时显示「暂无数据」，不伪造数据。
+- 生成脚本见 REPORT_GEN_SCRIPT（默认 core/macro/daily_macro_monitor.py，本项目
+  当前不存在 daily_stock_analysis.py，如另有脚本改此行即可）。
+- 模块一的核心指标从最新 .md 报告中正则提取，取不到时显示「—」，不伪造数据。
 
 启动：
     streamlit run web_dashboard.py
@@ -21,14 +22,17 @@ from __future__ import annotations
 import html
 import os
 import re
+import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+import plotly.graph_objects as go
 import requests
 import streamlit as st
 
-from core.industry_tracker import load_cache as load_concept_cache
+from core.industry_tracker import load_cache as load_concept_cache, run_daily as run_concept_daily
 from core import knowledge as kb
 from core.knowledge import config as kb_config
 from core.knowledge import models as kb_models
@@ -43,6 +47,7 @@ REPORT_DIRS = [
     HERE / "core" / "macro" / "reports",
     HERE,
 ]
+REPORT_GEN_SCRIPT = HERE / "core" / "macro" / "daily_macro_monitor.py"
 
 _REPORT_RE = re.compile(r"report|(?<!\d)\d{8}(?!\d)", re.IGNORECASE)
 
@@ -314,6 +319,26 @@ def _build_metrics(assets: list[dict], fedwatch: dict) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# 报告生成
+# ---------------------------------------------------------------------------
+def _run_generator() -> tuple[bool, str, str]:
+    if not REPORT_GEN_SCRIPT.is_file():
+        return False, f"生成脚本不存在：{REPORT_GEN_SCRIPT}", ""
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(REPORT_GEN_SCRIPT)],
+            cwd=str(HERE), capture_output=True, text=True, timeout=600,
+        )
+    except subprocess.TimeoutExpired:
+        return False, "生成脚本超时（>600s）", ""
+    except Exception as e:  # noqa: BLE001
+        return False, f"运行出错：{e}", ""
+    if proc.returncode == 0:
+        return True, "报告生成完成", ""
+    return False, f"生成脚本退出码 {proc.returncode}", (proc.stderr or proc.stdout or "")[-2000:]
+
+
+# ---------------------------------------------------------------------------
 # 各模块渲染
 # ---------------------------------------------------------------------------
 def _render_metric_row(metrics: list[dict], per_row: int = 4) -> None:
@@ -340,7 +365,7 @@ def _render_macro_page() -> None:
 
     reports = find_reports()
     if not reports:
-        st.info("暂无宏观监测数据：未找到任何复盘报告文件（core/macro/reports/*.md）。")
+        st.info("尚未找到任何复盘报告（.md）。请点击左侧「重新生成今日报告」。")
         return
 
     # 晨观 5 分钟：取最新一份报告的快讯摘要（与历史选择无关）
@@ -389,16 +414,21 @@ def _render_industry_page() -> None:
     st.subheader("🏭 细分产业与概念追踪")
 
     st.markdown(
-        "动态概念追踪：通过大模型读取资讯提取高频轮动概念。"
-        "实时抓取暂未启用，当前无公开展示数据。"
+        "系统通过大模型每日读取新闻与研报，动态提取「碳化硅」「电子布」等"
+        "高频轮动概念，替代传统的申万行业分类。"
     )
+
+    if st.button("🔄 重新提取今日概念", key="refresh_concepts"):
+        with st.spinner("正在扫描资讯并提取概念，请稍候（约 1-3 分钟）…"):
+            run_concept_daily()
+        st.rerun()
 
     cache = load_concept_cache()
     concepts = cache.get("concepts", [])
     st.caption(f"数据来源：Wind 资讯 + 大模型动态提取 · 最近更新：{cache.get('updated_at') or '—'}")
 
     if not concepts:
-        st.info("暂无动态概念数据：未找到缓存文件（data/dynamic_concepts_cache.json）或内容为空。")
+        st.info("暂无动态概念数据，请点击上方「重新提取今日概念」。")
         return
 
     rows = []
@@ -426,9 +456,114 @@ def _render_industry_page() -> None:
     })
 
 
+# 已验证分类色（散点气泡前三槽，全配对通过）与墨色
+_CAT_COLORS = {"全国两会": "#2a78d6", "人大常委会": "#eb6834", "国常会": "#1baf7a"}
+_INK = "#0b0b0b"
+_INK_SECONDARY = "#52514e"
+_INK_MUTED = "#898781"
+_GRID = "#e1e0d9"
+
+
+def _build_fiscal_calendar_fig() -> go.Figure:
+    """图表一：中国增量财政政策 × 重大会议时间博弈（气泡散点图）。"""
+    events = [
+        {"year": 2020, "month": 5, "meeting": "全国两会", "policy": "抗疫特别国债1万亿 + 赤字率3.6%以上", "scale": 2.0},
+        {"year": 2022, "month": 8, "meeting": "国常会", "policy": "政策性金融工具 + 专项债结存限额", "scale": 1.1},
+        {"year": 2023, "month": 10, "meeting": "人大常委会", "policy": "增发1万亿国债，赤字率提至3.8%", "scale": 1.0},
+        {"year": 2024, "month": 3, "meeting": "全国两会", "policy": "超长期特别国债1万亿（连续多年）", "scale": 1.0},
+        {"year": 2024, "month": 11, "meeting": "人大常委会", "policy": "10万亿化债方案", "scale": 10.0},
+        {"year": 2025, "month": 3, "meeting": "全国两会", "policy": "赤字率4% + 新增政府债务11.86万亿", "scale": 11.86},
+    ]
+    df = pd.DataFrame(events)
+    df["size"] = (14 + 10 * df["scale"] ** 0.5).round(1)
+    df["hover"] = df.apply(lambda r: f"{r['year']}年{r['month']}月：{r['meeting']}<br>{r['policy']}", axis=1)
+
+    fig = go.Figure()
+    for mt, color in _CAT_COLORS.items():
+        sub = df[df["meeting"] == mt]
+        if sub.empty:
+            continue
+        fig.add_trace(go.Scatter(
+            x=sub["month"], y=sub["year"], mode="markers", name=mt,
+            marker=dict(size=sub["size"], color=color, opacity=0.85,
+                        line=dict(width=1, color="rgba(255,255,255,0.8)")),
+            customdata=sub["hover"],
+            hovertemplate="%{customdata}<extra></extra>",
+        ))
+
+    # 关键会议月份参考线 + 顶部标签
+    for m, label in [(3, "两会"), (7, "政治局"), (10, "人大常委会"), (12, "中央经济工作会议")]:
+        fig.add_vline(x=m, line_width=1, line_dash="dot", line_color=_INK_MUTED, opacity=0.6)
+        fig.add_annotation(x=m, y=2026.1, text=label, showarrow=False,
+                           font=dict(size=10, color=_INK_MUTED), yanchor="bottom")
+
+    fig.update_xaxes(title="月份", tickvals=list(range(1, 13)),
+                     ticktext=[f"{i}月" for i in range(1, 13)], range=[0.2, 12.8],
+                     gridcolor=_GRID, zeroline=False)
+    fig.update_yaxes(title="年份", tickvals=list(range(2019, 2026)),
+                     range=[2018.4, 2026.4], gridcolor=_GRID, zeroline=False)
+    fig.update_layout(
+        title=dict(text="中国增量财政政策 × 重大会议时间博弈", font=dict(size=16, color=_INK)),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color=_INK, size=12),
+        margin=dict(l=10, r=10, t=50, b=10),
+        legend=dict(orientation="h", yanchor="bottom", y=1.0, x=0, font=dict(color=_INK_SECONDARY)),
+        hoverlabel=dict(bgcolor="white", font=dict(color=_INK)),
+        height=480,
+    )
+    return fig
+
+
+def _build_basel_evolution_fig() -> go.Figure:
+    """图表二：Basel III Endgame 资本要求演变（阶梯下行 + 投行观点标注）。"""
+    x = ["2023.7<br>首发", "2024<br>修订", "2025.10<br>新框架", "2026.3<br>重提案"]
+    y = [19, 9, 5, 5]
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=x, y=y, mode="lines+markers+text",
+        line=dict(color="#2a78d6", width=3, shape="hv"),
+        marker=dict(size=11, color="#2a78d6", line=dict(width=2, color="white")),
+        text=["19%", "9%", "3%–7%", "3%–7%"],
+        textposition="top center", textfont=dict(color=_INK, size=12),
+        hovertemplate="%{x}：大型银行资本增幅约 %{y}%<extra></extra>",
+        name="资本增幅要求",
+    ))
+
+    fig.add_annotation(x="2026.3<br>重提案", y=13.5, text="释放约 1750 亿美元<br>超额资本",
+                       showarrow=True, arrowhead=2, arrowwidth=1.5, arrowcolor=_INK_SECONDARY,
+                       ax="2026.3<br>重提案", ay=6.5,
+                       font=dict(color=_INK, size=12), bgcolor="white",
+                       bordercolor=_GRID, borderwidth=1, borderpad=6)
+    fig.add_annotation(x="2024<br>修订", y=15.5, text="六大行 Q3 回购<br>同比 +75%",
+                       showarrow=True, arrowhead=2, arrowwidth=1.5, arrowcolor=_INK_SECONDARY,
+                       ax="2024<br>修订", ay=7.5,
+                       font=dict(color=_INK, size=12), bgcolor="white",
+                       bordercolor=_GRID, borderwidth=1, borderpad=6)
+
+    fig.update_yaxes(range=[0, 20], title="大型银行资本增幅要求（%）",
+                     gridcolor=_GRID, zeroline=True, zerolinecolor=_INK_MUTED)
+    fig.update_xaxes(showgrid=False)
+    fig.update_layout(
+        title=dict(text="Basel III Endgame 资本要求演变：监管大松绑", font=dict(size=16, color=_INK)),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color=_INK, size=12),
+        margin=dict(l=10, r=10, t=60, b=10),
+        hoverlabel=dict(bgcolor="white", font=dict(color=_INK)),
+        height=440,
+    )
+    return fig
+
+
 def _render_deep_research_page() -> None:
     st.subheader("📈 深度研究可视化")
-    st.info("研究案例整理中：深度研究可视化内容暂未公开，待逐项核实后再发布。")
+    st.caption("基于 deep_research/deep_research_macro_policies.md 的硬数据，交互式呈现政策博弈与监管松绑。")
+
+    st.plotly_chart(_build_fiscal_calendar_fig(), use_container_width=True)
+    st.caption("气泡大小 ∝ 政策规模（万亿）；灰色虚线为两会 / 政治局 / 人大常委会 / 中央经济工作会议的固定月份。")
+    st.markdown("---")
+    st.plotly_chart(_build_basel_evolution_fig(), use_container_width=True)
+    st.caption("19%（2023 提案）→ 9%（2024 修订）→ 3%–7%（2025.10 新框架 / 2026.3 重提案）。2025.6 压力测试 22 家大行中 21 家 SCB 下降。")
 
 
 def _render_factor_page() -> None:
@@ -959,7 +1094,16 @@ def main() -> None:
         )
 
         st.markdown("---")
-        st.caption("实时数据抓取暂未启用")
+        if st.button("重新生成今日报告"):
+            with st.spinner("正在生成今日报告，请稍候…"):
+                ok, msg, detail = _run_generator()
+            if ok:
+                st.success(msg)
+                st.rerun()
+            else:
+                st.error(msg)
+                if detail:
+                    st.code(detail)
 
     if page == "🌍 宏观与大类资产":
         _render_macro_page()

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hmac
 import html
+import json
 import os
 import re
 import subprocess
@@ -323,8 +324,40 @@ def _build_metrics(assets: list[dict], fedwatch: dict) -> list[dict]:
 # ---------------------------------------------------------------------------
 # 报告生成
 # ---------------------------------------------------------------------------
+def _read_update_status() -> dict:
+    """读取数据更新状态（最近成功/尝试/失败原因）。"""
+    p = HERE / "data" / "update_status.json"
+    if not p.is_file():
+        return {}
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _write_update_status(key: str, ok: bool, detail: str) -> None:
+    """记录一次更新尝试（不覆盖报告数据本身，仅记录状态）。"""
+    p = HERE / "data" / "update_status.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    s = _read_update_status()
+    s[key] = {"ok": ok, "detail": detail, "at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+    p.write_text(json.dumps(s, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _render_update_status() -> None:
+    """宏观页顶部显示最近更新状态（失败时不抹掉上次成功结果，仅提示）。"""
+    s = _read_update_status().get("macro_report")
+    if not s:
+        return
+    if s.get("ok"):
+        st.caption(f"数据更新：最近成功于 {s['at']}")
+    else:
+        st.caption(f"数据更新：最近尝试 {s['at']} 失败（{s.get('detail', '')}），继续显示上次成功结果。")
+
+
 def _run_generator() -> tuple[bool, str, str]:
     if not REPORT_GEN_SCRIPT.is_file():
+        _write_update_status("macro_report", False, "生成脚本不存在")
         return False, f"生成脚本不存在：{REPORT_GEN_SCRIPT}", ""
     try:
         proc = subprocess.run(
@@ -332,11 +365,15 @@ def _run_generator() -> tuple[bool, str, str]:
             cwd=str(HERE), capture_output=True, text=True, timeout=600,
         )
     except subprocess.TimeoutExpired:
+        _write_update_status("macro_report", False, "生成脚本超时（>600s）")
         return False, "生成脚本超时（>600s）", ""
     except Exception as e:  # noqa: BLE001
+        _write_update_status("macro_report", False, f"运行出错：{e}")
         return False, f"运行出错：{e}", ""
     if proc.returncode == 0:
+        _write_update_status("macro_report", True, "报告生成完成")
         return True, "报告生成完成", ""
+    _write_update_status("macro_report", False, f"生成脚本退出码 {proc.returncode}")
     return False, f"生成脚本退出码 {proc.returncode}", (proc.stderr or proc.stdout or "")[-2000:]
 
 
@@ -368,17 +405,33 @@ def _extract_generated_at(text: str) -> str | None:
     return m.group(1) if m else None
 
 
+def _render_morning_brief(text: str) -> None:
+    """晨报：重要变化 / 可能的研究含义 / 今日待验证事件；经济数据与事件日历分开展示。"""
+    important = _extract_banner_text(text)
+    st.markdown("#### ☀️ 晨报")
+    t1, t2, t3 = st.tabs(["重要变化", "可能的研究含义", "今日待验证事件"])
+    with t1:
+        st.markdown(important if important else "（暂无当日快讯摘要）")
+    with t2:
+        st.caption("（暂无：研究含义需大模型生成，未配置时不自动触发，避免访客进入即调用模型）")
+    with t3:
+        st.caption("（暂无：未接入经济日历数据源，无法列出今日待验证事件/指标）")
+    st.caption("已公布经济数据（实际/预期/前值）与未来事件日历：当前报告仅含新闻摘要，"
+               "未接入结构化经济数据源，暂不展示。")
+
+
 def _render_macro_page() -> None:
     st.subheader("🌍 宏观与大类资产")
+    _render_update_status()
 
     reports = find_reports()
     if not reports:
         st.info("尚未找到任何复盘报告（.md）。请点击左侧「重新生成今日报告」。")
         return
 
-    # 晨观 5 分钟：取最新一份报告的快讯摘要（与历史选择无关）
+    # 晨报：取最新一份报告的快讯摘要（与历史选择无关）
     latest_text = reports[0].read_text(encoding="utf-8")
-    _render_banner(_extract_banner_text(latest_text))
+    _render_morning_brief(latest_text)
 
     # 历史报告选择（用于下方明细展示）
     labels = [p.name for p in reports]
@@ -631,13 +684,23 @@ def _build_basel_evolution_fig() -> go.Figure:
 
 def _render_deep_research_page() -> None:
     st.subheader("📈 深度研究可视化")
-    st.caption("基于 deep_research/deep_research_macro_policies.md 的硬数据，交互式呈现政策博弈与监管松绑。")
+    st.warning("⚠️ 待核验：本页图表中的具体数字（财政规模、Basel III 资本要求等）尚未逐项对照一手来源复核，"
+               "仅作研究示意，不作为结论引用。")
 
+    st.markdown("**图表一：中国增量财政政策 × 重大会议时间博弈**")
+    st.caption("口径：历年两会 / 国常会 / 人大常委会公布的增量财政政策规模（万亿元）；"
+               "来源：财政部、国务院公开公告；数据日期截至 2025-03。")
     st.plotly_chart(_build_fiscal_calendar_fig(), width="stretch")
     st.caption("气泡大小 ∝ 政策规模（万亿）；灰色虚线为两会 / 政治局 / 人大常委会 / 中央经济工作会议的固定月份。")
+
     st.markdown("---")
+
+    st.markdown("**图表二：Basel III Endgame 资本要求演变**")
+    st.caption("口径：美国大型银行资本增幅要求（%）；来源：美联储 Basel III Endgame 提案修订历程；"
+               "数据日期截至 2026-03（重提案）。")
     st.plotly_chart(_build_basel_evolution_fig(), width="stretch")
-    st.caption("19%（2023 提案）→ 9%（2024 修订）→ 3%–7%（2025.10 新框架 / 2026.3 重提案）。2025.6 压力测试 22 家大行中 21 家 SCB 下降。")
+    st.caption("19%（2023 提案）→ 9%（2024 修订）→ 3%–7%（2025.10 新框架 / 2026.3 重提案）。"
+               "2025.6 压力测试 22 家大行中 21 家 SCB 下降（该点待核验）。")
 
 
 def _render_factor_page() -> None:

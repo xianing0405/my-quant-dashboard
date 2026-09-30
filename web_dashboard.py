@@ -1246,16 +1246,24 @@ def _render_kb_commentary_page(user: str | None) -> None:
 
 
 def _render_model_usage() -> None:
-    """管理员可见：展示本进程实际模型调用统计（来自 API usage，不编造）。"""
-    u = kb_llm.usage_stats()
-    if not u["calls"]:
+    """管理员可见：展示本进程实际模型调用统计（辅助功能，读取失败不阻断其他页面）。"""
+    stats_fn = getattr(kb_llm, "usage_stats", None)
+    if stats_fn is None:
+        st.caption("用量统计暂不可用。")
+        return
+    try:
+        u = stats_fn()
+    except Exception:  # noqa: BLE001
+        st.caption("用量统计暂不可用。")
+        return
+    if not u.get("calls"):
         st.caption("模型调用：本进程尚无实际调用记录。")
         return
-    st.caption(f"模型调用：{u['calls']} 次 · 输入 {u['total_input_tokens']} token · "
-               f"输出 {u['total_output_tokens']} token · 模型 {u['model']} · {u['base_url']}")
+    st.caption(f"模型调用：{u['calls']} 次 · 输入 {u.get('total_input_tokens', 0)} token · "
+               f"输出 {u.get('total_output_tokens', 0)} token · 模型 {u.get('model', '—')} · {u.get('base_url', '')}")
     with st.expander("调用明细", expanded=False):
-        for c in u["last_calls"]:
-            st.caption(f"{c['ts']} · in {c['input_tokens']} / out {c['output_tokens']} · {c['model']}")
+        for c in u.get("last_calls", []):
+            st.caption(f"{c.get('ts', '')} · in {c.get('input_tokens')} / out {c.get('output_tokens')} · {c.get('model', '')}")
 
 
 def _render_knowledge_page() -> None:

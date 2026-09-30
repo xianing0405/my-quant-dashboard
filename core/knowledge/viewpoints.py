@@ -119,9 +119,12 @@ def extract_viewpoints_from_document(
 
     text = "\n\n".join(c.text for c in chunks)
     raw = llm.complete_json(_EXTRACT_PROMPT.format(text=text))
+    if raw is None:
+        err = llm.last_error() or {}
+        return {"ok": False, "reason": f"提取失败：{err.get('detail', '模型调用失败')}", "created": []}
     items = _parse_viewpoints(raw)
     if not items:
-        return {"ok": False, "reason": "未从材料中提取到明确观点（或模型未返回有效结果）", "created": []}
+        return {"ok": False, "reason": "模型返回中未包含明确观点（该材料可能无明确观点表述）", "created": []}
 
     created = []
     for it in items:

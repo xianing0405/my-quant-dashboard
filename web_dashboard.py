@@ -871,7 +871,8 @@ def _kb_generate_answer(query: str, hits: list[dict], user: str | None = None) -
 
     answer = kb_llm.complete(_QA_PROMPT.format(context=context, query=query), max_tokens=2000)
     if not answer:
-        return ("（模型不可用或调用失败：未配置 ANTHROPIC_AUTH_TOKEN 或接口异常。"
+        err = kb_llm.last_error() or {}
+        return (f"（检索成功，AI 生成失败：{err.get('detail', '未知原因')}。"
                 "以下为检索到的原始材料，仅供参考，未作 AI 综合。）", hits, [])
 
     cited, invalid = [], []
@@ -890,8 +891,14 @@ def _kb_generate_answer(query: str, hits: list[dict], user: str | None = None) -
 
 
 def _kb_filter_controls(docs: list[dict]) -> dict:
-    """组装筛选条件（来源类别/公司/主题/作者/日期）。"""
+    """组装筛选条件（来源类别/公司/主题/作者/日期/限定文档）。"""
     filters: dict = {}
+    doc_ids = st.multiselect(
+        "限定文档", [d["document_id"] for d in docs],
+        format_func=lambda x: next((d["title"] for d in docs if d["document_id"] == x), x),
+    )
+    if doc_ids:
+        filters["document_ids"] = doc_ids
     all_cats = sorted({d.get("source_category") or "" for d in docs if d.get("source_category")})
     cats = st.multiselect("来源类别", kb_models.SOURCE_CATEGORIES, default=[])
     if cats:
@@ -1200,12 +1207,14 @@ def _render_kb_commentary_page(user: str | None) -> None:
         c1, c2, c3 = st.columns(3)
         subject = c1.text_input("研究对象（留空自动识别）")
         cutoff = c2.text_input("研究截止日期（YYYY-MM-DD，可选）", value="")
-        top_k = c3.slider("检索证据条数", 1, 12, 6)
+        evdate = c3.text_input("事件日期（YYYY-MM-DD，可选）", value="")
+        top_k = st.slider("检索证据条数", 1, 12, 6)
         doc_sel = st.multiselect(
             "限定材料（可选，留空=全部）",
             [d["document_id"] for d in docs],
             format_func=lambda x: next((d["title"] for d in docs if d["document_id"] == x), x),
         )
+        is_simulated = st.checkbox("模拟事件（测试用，不保存为正式点评）")
         save = st.checkbox("保存本次点评（来源类别=AI生成内容）")
         submitted = st.form_submit_button("生成点评")
 
@@ -1222,7 +1231,9 @@ def _render_kb_commentary_page(user: str | None) -> None:
                     cutoff_date=_parse_iso_date(cutoff),
                     document_ids=doc_sel or None,
                     top_k=top_k,
-                    save=save,
+                    save=(save and not is_simulated),
+                    is_simulated=is_simulated,
+                    event_date=_parse_iso_date(evdate),
                 )
             if not r.get("ok"):
                 st.error(r.get("error"))

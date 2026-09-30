@@ -23,6 +23,19 @@ from .models import Evidence
 _WORD_RE = re.compile(r"[a-zA-Z0-9]+")
 _CJK_RE = re.compile(r"[一-鿿]")
 
+# 法律声明/封面页常见措辞：检索时大幅降权（不删除原文）
+_BOILERPLATE = [
+    "版权所有", "未经许可", "免责声明", "不得转载", "本报告仅", "仅供参考",
+    "copyright", "disclaimer", "confidential", "important disclosure",
+    "global research", "all rights reserved", "not for redistribution",
+    "analyst certification", "本报告由", "报告中观点",
+]
+
+
+def _is_boilerplate(text: str) -> bool:
+    t = (text or "").lower()
+    return sum(1 for p in _BOILERPLATE if p in t) >= 2
+
 
 def _tokenize(text: str) -> list[str]:
     text = (text or "").lower()
@@ -68,7 +81,11 @@ def _keyword_score(query: str, q_tf: dict[str, int], c: Evidence, idf: dict[str,
     for t in q_terms:
         if len(t) >= 2 and t in text:
             boost += 0.05
-    return min(1.0, base + boost)
+    score = min(1.0, base + boost)
+    # 法律声明/封面页降权
+    if _is_boilerplate(c.text):
+        score *= 0.3
+    return score
 
 
 def _apply_filters(chunks: list[Evidence], filters: dict | None) -> list[Evidence]:

@@ -77,6 +77,8 @@ def build_commentary(
     document_ids: list[str] | None = None,
     top_k: int = 6,
     save: bool = False,
+    is_simulated: bool = False,
+    event_date: str | None = None,
 ) -> dict[str, Any]:
     """执行一次事件点评，返回结构化结果（dict），可另存为观点记录。"""
     require_admin(user, "生成事件点评")
@@ -86,7 +88,8 @@ def build_commentary(
         return {"ok": False, "error": "未提供新事件文本"}
 
     subject = subject or _extract_subject(event_text)
-    event_date = _extract_event_date(event_text)
+    # 显式传入的事件日期优先；未提供时才从文本识别（避免误用历史报告日期）
+    event_date = event_date or _extract_event_date(event_text)
 
     # 1. 检索历史观点（有截止日期时只取当时已形成/已公开的观点）
     vp_result = get_viewpoint_history(subject, user, cutoff_date=cutoff_date)
@@ -130,12 +133,13 @@ def build_commentary(
 
     # 无模型或模型失败时的兜底说明（不伪装成 AI 点评）
     if ai_analysis is None:
+        err = llm.last_error() or {}
         if not llm.available():
-            note = "（模型不可用：未配置 ANTHROPIC_AUTH_TOKEN。以下仅列出检索到的原始材料，不含 AI 分析。）"
+            note = "（检索成功，AI 生成失败：未配置模型凭证。以下仅列出检索到的原始材料，不含 AI 分析。）"
         elif not viewpoints and not hits:
             note = "（当前检索范围内未找到历史观点或支持材料，无法进行 AI 点评。）"
         else:
-            note = "（模型调用失败，以下仅列出检索到的原始材料。）"
+            note = f"（检索成功，AI 生成失败：{err.get('detail', '未知原因')}。以下仅列出检索到的原始材料，不含 AI 分析。）"
 
     output = _render_output(
         event_text=event_text,
@@ -149,6 +153,7 @@ def build_commentary(
         ai_analysis=ai_analysis,
         note=note,
         user_pasted=True,
+        is_simulated=is_simulated,
     )
 
     commentary_id = None
@@ -185,8 +190,12 @@ def _render_output(
     ai_analysis: str | None,
     note: str | None,
     user_pasted: bool,
+    is_simulated: bool = False,
 ) -> str:
     lines: list[str] = []
+    if is_simulated:
+        lines.append("> ⚠️ **【模拟事件】**：本点评基于模拟事件，仅供测试，不作为正式结论，也不保存为正式点评。")
+        lines.append("")
     lines.append("## 一、新事件与新增事实")
     src = "用户提供，来源未独立核验" if user_pasted else "来自入库材料"
     lines.append(f"- 研究对象：{subject or '（未识别）'}")
@@ -194,7 +203,7 @@ def _render_output(
         lines.append(f"- 关联公司：{company}")
     if topic:
         lines.append(f"- 产业主题：{topic}")
-    lines.append(f"- 事件日期：{event_date or '（未识别）'}")
+    lines.append(f"- 事件日期：{event_date or '未指定'}")
     lines.append(f"- 研究截止日期：{cutoff_date or '未设置（含全部材料）'}")
     lines.append(f"- 材料来源：{src}")
     lines.append("")

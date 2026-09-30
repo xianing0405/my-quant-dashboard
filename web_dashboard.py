@@ -40,6 +40,7 @@ from core import knowledge as kb
 from core.knowledge import config as kb_config
 from core.knowledge import models as kb_models
 from core.knowledge import llm as kb_llm
+from core.macro import official_sources
 
 HERE = Path(__file__).resolve().parent
 
@@ -1195,9 +1196,70 @@ def _render_kb_viewpoints_page(user: str | None) -> None:
 
 
 # ---- 事件点评 ----
+def _render_kb_commentary_online(user: str | None, docs: list[dict]) -> None:
+    """输入任务 → 联网获取官方数据 → 结合知识库生成点评。"""
+    with st.form("kb_commentary_online"):
+        task = st.text_input("输入任务", placeholder="例如：点评今天中国PMI，结合知识库判断宏观周期")
+        doc_sel = st.multiselect(
+            "限定材料（可选，留空=全部）",
+            [d["document_id"] for d in docs],
+            format_func=lambda x: next((d["title"] for d in docs if d["document_id"] == x), x),
+        )
+        submitted = st.form_submit_button("获取并点评")
+
+    if not submitted:
+        return
+    if not task.strip():
+        st.warning("请输入任务")
+        return
+    parsed = official_sources.parse_task(task)
+    if parsed.get("indicator") != "PMI":
+        st.warning("当前联网获取仅支持「PMI」（国家统计局）；其他公开指标后续接入通用流程。")
+        return
+
+    with st.spinner("正在获取国家统计局官方数据…"):
+        data = official_sources.fetch_pmi()
+    if not data.get("ok"):
+        st.error(f"官方数据获取失败：{data.get('error')}")
+        return
+
+    st.markdown(f"**官方来源**：[{data['source']}]({data['source_url']}) · {data.get('period') or data.get('published_at')}")
+    h = data.get("headline") or {}
+    parts: list[str] = []
+    if h:
+        st.markdown(f"- {h.get('name')}：**{h.get('value')}%**（{h.get('change_text') or '—'}）")
+        st.caption(f"原文：{h.get('quote')}")
+        parts.append(f"{data.get('period') or ''}中国制造业采购经理指数（PMI）为{h['value']}%（{h.get('change_text') or '—'}）".strip())
+    for s in data.get("sub_items", [])[:8]:
+        st.markdown(f"- {s['name']}：{s['value']}%（{s['change_text']}）")
+        parts.append(f"{s['name']}为{s['value']}%（{s['change_text']}）")
+    if data.get("non_manufacturing"):
+        st.markdown(f"- 非制造业商务活动指数：{data['non_manufacturing']}%")
+    if data.get("composite_pmi"):
+        st.markdown(f"- 综合PMI产出指数：{data['composite_pmi']}%")
+
+    event_text = "；".join(parts)
+    with st.spinner("正在结合知识库生成点评…"):
+        r = kb.build_commentary(
+            event_text, user, subject="中国制造业PMI",
+            document_ids=doc_sel or None, top_k=6, save=False, is_simulated=False,
+        )
+    if not r.get("ok"):
+        st.error(r.get("error"))
+        return
+    st.markdown(r["output_markdown"])
+    st.caption(f"检索模式：{r.get('search_mode')} · 命中观点 {r.get('viewpoint_count')} · "
+               f"命中证据 {r.get('evidence_count')} · AI分析：{'已生成' if r.get('ai_generated') else '未生成（仅列原文）'}")
+
+
 def _render_kb_commentary_page(user: str | None) -> None:
     st.markdown("#### 🗞️ 事件点评")
     docs = kb.list_documents(user)
+
+    mode = st.radio("输入方式", ["粘贴材料", "输入任务（联网获取官方数据）"], horizontal=True)
+    if mode == "输入任务（联网获取官方数据）":
+        _render_kb_commentary_online(user, docs)
+        return
 
     with st.form("kb_commentary"):
         event_text = st.text_area(

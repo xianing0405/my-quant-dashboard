@@ -395,9 +395,8 @@ SUPPORTED_EXTENSIONS = {"pdf", "docx", "md", "markdown", "txt", "rtf", "json"}
 
 
 def _is_instructional(name: str) -> bool:
-    """操作说明 / 索引类文件：不进入研究检索索引，但保留磁盘原文件。"""
-    stem = Path(name).stem.lower()
-    return stem.startswith("readme") or "说明" in name or "索引" in name
+    """仅跳过明确的 README 系统说明文件；不误伤文件名含「说明/索引」的正式资料。"""
+    return Path(name).stem.lower() == "readme"
 
 
 def scan_folder_recursive(

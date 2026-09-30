@@ -147,11 +147,15 @@ def test_viewpoint_revision_history(env):
 def test_no_evidence_no_fabrication(env):
     res = kb.search_materials("完全不存在的主题 XYZ123", USER, top_k=3)
     assert res["hits"] == []
-    # 页面层 _kb_generate_answer 的行为：无命中返回明确无依据文案
+    # 页面层 _kb_generate_answer 的行为：管理员且无命中时返回明确无依据文案
     from web_dashboard import _kb_generate_answer
-    answer, hits, cited = _kb_generate_answer("完全不存在的主题 XYZ123", [])
+    answer, hits, cited = _kb_generate_answer("完全不存在的主题 XYZ123", [], user=USER)
     assert "未找到支持材料" in answer
     assert hits == [] and cited == []
+    # 匿名访客被服务端限制为「仅检索原文」，不触发模型
+    answer2, hits2, cited2 = _kb_generate_answer("测试", [{"title": "x", "text": "y"}], user="anonymous")
+    assert "暂限管理员" in answer2
+    assert hits2 and cited2 == []
 
 
 # ---------------------------------------------------------------------------

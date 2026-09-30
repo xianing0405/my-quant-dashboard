@@ -846,8 +846,13 @@ _QA_PROMPT = (
 _MAX_EVIDENCE_CHARS = 8000  # 发送给模型的总证据字符预算（不仅限 top_k）
 
 
-def _kb_generate_answer(query: str, hits: list[dict]) -> tuple[str, list[dict], list[int]]:
-    """带引用校验的回答：仅使用本次检索到的证据，编号不合法即明确标注为不可核验。"""
+def _kb_generate_answer(query: str, hits: list[dict], user: str | None = None) -> tuple[str, list[dict], list[int]]:
+    """带引用校验的回答：仅使用本次检索到的证据，编号不合法即明确标注为不可核验。
+
+    AI 综合暂限管理员（访客仅检索原文），服务端在此强制，不只在界面隐藏。
+    """
+    if not kb.is_admin(user):
+        return ("AI 综合回答暂限管理员，当前仅展示检索原文。", hits, [])
     if not hits:
         return ("在当前检索范围内未找到支持材料，无法依据研究知识库回答，也不作凭空判断。", [], [])
 
@@ -1030,8 +1035,13 @@ def _render_kb_qa_page(user: str | None) -> None:
         filters = _kb_filter_controls(docs)
         top_k = st.slider("返回证据条数", 1, 10, 5)
 
-    # 两种回答模式：仅「AI 综合回答」调用生成模型
-    mode = st.radio("回答模式", ["仅检索原文", "AI 综合回答"], horizontal=True, index=0)
+    # 两种回答模式：仅「AI 综合回答」调用生成模型；匿名访客暂限「仅检索原文」
+    if kb.is_admin(user):
+        mode = st.radio("回答模式", ["仅检索原文", "AI 综合回答"], horizontal=True, index=0)
+    else:
+        st.radio("回答模式", ["仅检索原文"], horizontal=True, index=0, disabled=True)
+        st.caption("AI 综合回答暂限管理员。")
+        mode = "仅检索原文"
 
     if "kb_qa_msgs" not in st.session_state:
         st.session_state.kb_qa_msgs = []
@@ -1057,7 +1067,7 @@ def _render_kb_qa_page(user: str | None) -> None:
                 if res.get("date_unknown_excluded"):
                     st.caption(f"⚠️ 有 {res['date_unknown_excluded']} 份日期未知的材料未纳入截止日期筛选")
                 if mode == "AI 综合回答":
-                    answer, hits2, cited = _kb_generate_answer(query, hits)
+                    answer, hits2, cited = _kb_generate_answer(query, hits, user)
                 else:
                     answer = f"共检索到 {len(hits)} 条相关原文（仅检索原文，未调用生成模型）。"
                     hits2 = hits

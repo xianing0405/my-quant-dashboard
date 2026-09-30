@@ -388,6 +388,10 @@ def get_store() -> StorageAdapter:
     if backend == "local":
         _cache = LocalSqliteStorage(str(config.store_db_path()))
         return _cache
+    if backend in ("postgres", "supabase"):
+        from .storage_postgres import PostgresStorage  # noqa: PLC0415
+        _cache = PostgresStorage()
+        return _cache
     raise StorageError(
         f"未支持的存储后端 {backend!r}。第一版仅实现 'local'（本地 SQLite）。"
         "云端部署请实现 StorageAdapter 的远程后端（对象存储 + 托管数据库），"

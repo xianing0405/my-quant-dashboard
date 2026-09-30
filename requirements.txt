@@ -21,3 +21,6 @@ python-docx==1.2.0
 
 # 行情数据（预留：当前代码未直接 import，按需求包含）
 yfinance
+
+# Postgres 云端持久化（Supabase 后端）
+psycopg[binary]==3.2.9

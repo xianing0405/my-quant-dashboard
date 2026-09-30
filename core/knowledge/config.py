@@ -122,6 +122,25 @@ def storage_backend() -> str:
     return (get("KNOWLEDGE_STORAGE_BACKEND") or "local").strip().lower()
 
 
+# ---------------------------------------------------------------------------
+# Supabase / Postgres 云端持久化配置（原始文件走 Storage，元数据/片段走 Postgres）
+# ---------------------------------------------------------------------------
+def postgres_dsn() -> str | None:
+    return get("POSTGRES_DSN")
+
+
+def supabase_url() -> str | None:
+    return get("SUPABASE_URL")
+
+
+def supabase_service_key() -> str | None:
+    return get("SUPABASE_SERVICE_KEY")
+
+
+def files_bucket() -> str:
+    return get("KNOWLEDGE_FILES_BUCKET") or "knowledge-store"
+
+
 # 供页面顶部展示使用
 def summary() -> dict:
     return {

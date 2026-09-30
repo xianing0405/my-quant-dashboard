@@ -1243,13 +1243,19 @@ def _render_kb_commentary_online(user: str | None, docs: list[dict]) -> None:
         r = kb.build_commentary(
             event_text, user, subject="中国制造业PMI",
             document_ids=doc_sel or None, top_k=6, save=False, is_simulated=False,
+            event_facts=data, region=parsed.get("region"),
         )
     if not r.get("ok"):
         st.error(r.get("error"))
         return
     st.markdown(r["output_markdown"])
     st.caption(f"检索模式：{r.get('search_mode')} · 命中观点 {r.get('viewpoint_count')} · "
-               f"命中证据 {r.get('evidence_count')} · AI分析：{'已生成' if r.get('ai_generated') else '未生成（仅列原文）'}")
+               f"命中证据 {r.get('evidence_count')} · 地区排除 {len(r.get('excluded_hits', []))} 条 · "
+               f"AI分析：{'已生成' if r.get('ai_generated') else '未生成（仅列原文）'}")
+    if r.get("excluded_hits"):
+        with st.expander("已排除的不相关材料（供管理员核查）", expanded=False):
+            for e in r["excluded_hits"]:
+                st.caption(f"排除：{e.get('title')} — {e.get('reason')}")
 
 
 def _render_kb_commentary_page(user: str | None) -> None:

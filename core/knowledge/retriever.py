@@ -23,6 +23,34 @@ from .models import Evidence
 _WORD_RE = re.compile(r"[a-zA-Z0-9]+")
 _CJK_RE = re.compile(r"[一-鿿]")
 
+# 中文→英文术语映射（可复用，不硬编码任何报告数值）：帮助中文提问命中英文正文
+_TERM_MAP = {
+    "就业": ["employment", "jobs", "payroll", "labor", "nfp", "nonfarm"],
+    "价格": ["price", "prices", "pricing", "inflation", "cpi"],
+    "通胀": ["inflation", "cpi"],
+    "加息": ["hike", "rate hike", "tightening"],
+    "利率": ["rate", "rates", "interest rate", "yield"],
+    "美联储": ["fed", "federal reserve", "fomc"],
+    "增长": ["growth"],
+    "关税": ["tariff", "tariffs"],
+    "出口": ["export", "exports"],
+    "进口": ["import", "imports"],
+    "采购经理": ["pmi", "ism"],
+    "制造": ["manufacturing", "ism"],
+    "数据": ["data"],
+    "工资": ["wage", "wages", "earnings"],
+    "失业": ["unemployment", "jobless"],
+}
+
+
+def _expand_query(query: str) -> str:
+    """把查询中的中文术语映射到英文近义词，帮助命中英文正文。"""
+    out = [query]
+    for zh, ens in _TERM_MAP.items():
+        if zh in query:
+            out.extend(ens)
+    return " ".join(out)
+
 # 法律声明/封面页常见措辞：检索时大幅降权（不删除原文）
 _BOILERPLATE = [
     "版权所有", "未经许可", "免责声明", "不得转载", "本报告仅", "仅供参考",
@@ -242,7 +270,7 @@ def search_materials(
     if not candidates:
         return {"hits": [], "mode": config.retrieval_mode(), "date_unknown_excluded": date_unknown}
 
-    q_tf = _tf(_tokenize(query))
+    q_tf = _tf(_tokenize(_expand_query(query)))
     idf = _idf(candidates)
     kw_scores = {c.evidence_id: _keyword_score(query, q_tf, c, idf) for c in candidates}
 

@@ -313,6 +313,18 @@ def delete_document(document_id: str, *, user: str | None = None) -> None:
     store.delete_document(document_id)
 
 
+def cleanup_system_docs(*, user: str | None = None) -> dict:
+    """清理已入库的系统说明文档（README 等），保留磁盘原文件与真实研报。"""
+    require_admin(user, "清理系统说明索引")
+    store = storage.get_store()
+    removed: list[str] = []
+    for d in store.list_documents():
+        if _is_instructional(d.title):
+            store.delete_document(d.document_id)
+            removed.append(d.title)
+    return {"removed": removed}
+
+
 def set_document_public(document_id: str, public: bool, *, user: str | None = None) -> None:
     """管理员开关：是否允许网站访客匿名查询该文档（permission_scope）。
 

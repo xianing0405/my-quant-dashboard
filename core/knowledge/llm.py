@@ -93,7 +93,8 @@ def complete(prompt: str, *, max_tokens: int = 2000, system: str | None = None) 
     if system:
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
-    payload = {"model": _MODEL, "max_tokens": max_tokens, "messages": messages}
+    payload = {"model": _MODEL, "max_tokens": max_tokens, "messages": messages,
+               "thinking": {"type": "disabled"}}
     headers = {
         "content-type": "application/json",
         "authorization": f"Bearer {token}",
@@ -130,15 +131,20 @@ def complete(prompt: str, *, max_tokens: int = 2000, system: str | None = None) 
                   finish_reason=finish, request_id=rid, status=resp.status_code)
 
     content = data.get("content") or []
+    # 只记录内容块类型与长度（不输出思考正文/密钥/完整研报），用于诊断
+    block_types = [
+        (b.get("type"), len(str(b.get("text") or b.get("thinking") or ""))) if isinstance(b, dict) else ("?", 0)
+        for b in content
+    ]
     text = "".join(
         b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"
     ).strip().strip('"\'“”')
 
     if not text:
-        _record_error("empty_response", f"响应无文本 content · finish={finish} · 耗时 {elapsed}s")
+        _record_error("empty_response", f"响应无文本 content · blocks={block_types} · finish={finish} · 耗时 {elapsed}s")
         return None
     if finish in ("max_tokens", "length", "tool_calls", "content_filter"):
-        _record_error("truncated", f"结束原因 {finish}（可能截断） · 耗时 {elapsed}s")
+        _record_error("truncated", f"结束原因 {finish}（可能截断） · blocks={block_types} · 耗时 {elapsed}s")
     return text
 
 

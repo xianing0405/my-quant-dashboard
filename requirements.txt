@@ -22,5 +22,5 @@ python-docx==1.2.0
 # 行情数据（预留：当前代码未直接 import，按需求包含）
 yfinance
 
-# Postgres 云端持久化（Supabase 后端）
-psycopg[binary]==3.2.9
+# Supabase/Postgres 云端持久化依赖（暂未启用，避免部署安装失败；
+# 启用后端时再加 psycopg[binary] 与云端环境匹配的版本）

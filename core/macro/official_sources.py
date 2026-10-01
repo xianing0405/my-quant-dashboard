@@ -55,30 +55,57 @@ def _parse_pmi(html: str) -> dict:
     title = re.search(r"(\d{4})年(\d{1,2})月中国采购经理指数运行情况", plain)
     period = f"{title.group(1)}年{title.group(2)}月" if title else ""
 
-    # 制造业 PMI 与变化
+    # 制造业 PMI 与变化（含前值推算）
     mfg = re.search(r"制造业采购经理指数（\s*PMI\s*）为\s*(\d+\.\d+)\s*%", plain)
     headline = None
     if mfg:
-        headline = {"name": "制造业PMI", "value": float(mfg.group(1)), "unit": "%",
-                    "change": None, "change_text": None, "quote": ""}
+        headline = {"name": "制造业PMI", "sector": "制造业", "value": float(mfg.group(1)), "unit": "%",
+                    "change": None, "change_text": None, "previous": None, "quote": ""}
         m = re.search(r"制造业采购经理指数（\s*PMI\s*）为\s*\d+\.\d+\s*%[，,](.{0,40}?)[。；;]", plain)
         if m:
             headline["quote"] = m.group(0)[:80]
-            cm = re.search(r"比上月(上升|下降|持平)(\d+\.\d+)?", m.group(1))
+            cm = re.search(r"比上月(上升|下降)(\d+\.\d+)个百分点", m.group(1))
             if cm:
-                d = cm.group(2)
-                headline["change"] = (float(d) if cm.group(1) == "上升" else -float(d)) if d else 0.0
+                d = float(cm.group(2))
+                sign = 1 if cm.group(1) == "上升" else -1
+                headline["change"] = round(sign * d, 1)
                 headline["change_text"] = cm.group(0)
+                headline["previous"] = round(headline["value"] - sign * d, 1)
 
-    # 分项："{name}为{X}%，比上月{上升|下降}{Y}个百分点"
-    sub_items = []
-    for m in re.finditer(r"([一-鿿]{2,10}指数)为\s*(\d+\.\d+)\s*%[，,](.{0,30}?比上月(?:上升|下降)\d+\.\d+个百分点)", plain):
+    # 分项：按板块位置归因，避免同名「新订单/从业人员」串值（制造业/非制造业/建筑业各不同）
+    sub_items: list[dict] = []
+    sec_pos = []
+    for name, pat in [("制造业", "一、中国制造业采购经理指数运行情况"),
+                      ("非制造业", "二、中国非制造业采购经理指数运行情况"),
+                      ("综合", "三、中国综合PMI产出指数运行情况")]:
+        p = plain.find(pat)
+        if p >= 0:
+            sec_pos.append((name, p))
+    sec_pos.sort(key=lambda x: x[1])
+
+    for m in re.finditer(r"([一-鿿]{2,12}指数)为\s*(\d+\.\d+)\s*%[，,](.{0,40}?比上月(?:上升|下降)\d+\.\d+个百分点)", plain):
         name, val = m.group(1), float(m.group(2))
-        tail = m.group(3)
-        cm = re.search(r"比上月(上升|下降)(\d+\.\d+)个百分点", tail)
+        sector = "综合"
+        for sn, sp in sec_pos:
+            if sp <= m.start():
+                sector = sn
+        if "建筑" in name:
+            sector = "建筑业"
+        cm = re.search(r"比上月(上升|下降)(\d+\.\d+)个百分点", m.group(3))
         change = float(cm.group(2)) if cm.group(1) == "上升" else -float(cm.group(2))
-        sub_items.append({"name": name, "value": val, "change": change,
+        sub_items.append({"name": name, "sector": sector, "value": val,
+                          "change": round(change, 1), "previous": round(val - change, 1),
                           "change_text": cm.group(0), "quote": m.group(0)[:100]})
+
+    # 去重：综合节末尾的汇总表会重复列示各板块分项（按名称+数值保留首个，即带正确板块归属者）
+    seen: set = set()
+    deduped: list[dict] = []
+    for s in sub_items:
+        key = (s["name"], s["value"])
+        if key not in seen:
+            seen.add(key)
+            deduped.append(s)
+    sub_items = deduped
 
     # 非制造业 / 综合 PMI
     non_mfg = re.search(r"非制造业商务活动指数为\s*(\d+\.\d+)\s*%", plain)

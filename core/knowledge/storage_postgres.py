@@ -26,6 +26,13 @@ def _conn():
     return psycopg.connect(dsn, row_factory=dict_row)
 
 
+def _no_nul(v: Any) -> Any:
+    """Postgres text 不接受 NUL(0x00) 字节；写库前剥离（PDF 提取可能带入）。"""
+    if isinstance(v, str):
+        return v.replace("\x00", "")
+    return v
+
+
 class PostgresStorage(StorageAdapter):
     def __init__(self):
         # 连接测试：构造时验证表存在（失败抛 StorageError，由上层捕获）
@@ -35,7 +42,7 @@ class PostgresStorage(StorageAdapter):
 
     # ---- documents ----
     def upsert_document(self, doc: Document) -> None:
-        d = doc.to_dict()
+        d = {k: _no_nul(v) for k, v in doc.to_dict().items()}
         d["companies"] = json.dumps(d["companies"], ensure_ascii=False)
         d["industry_topics"] = json.dumps(d["industry_topics"], ensure_ascii=False)
         cols = list(d.keys())
@@ -92,7 +99,7 @@ class PostgresStorage(StorageAdapter):
                 "speaker", "ts", "role", "parent_evidence_id", "is_ai_generated"]
         rows = []
         for ch in chunks:
-            d = ch.to_dict()
+            d = {k: _no_nul(v) for k, v in ch.to_dict().items()}
             d["is_ai_generated"] = 1 if d["is_ai_generated"] else 0
             rows.append([d[c] for c in cols])
         with _conn() as conn:
@@ -126,7 +133,7 @@ class PostgresStorage(StorageAdapter):
 
     # ---- viewpoints ----
     def add_viewpoint(self, vp: Viewpoint) -> None:
-        d = vp.to_dict()
+        d = {k: _no_nul(v) for k, v in vp.to_dict().items()}
         d["evidence_ids"] = json.dumps(d["evidence_ids"], ensure_ascii=False)
         d["relationships"] = json.dumps(d["relationships"], ensure_ascii=False)
         d["is_ai_generated"] = 1 if d["is_ai_generated"] else 0
@@ -176,9 +183,9 @@ class PostgresStorage(StorageAdapter):
                 cur.execute(
                     "insert into commentaries (commentary_id, event_text, subject, cutoff_date, output_markdown, source_category, created_at) "
                     "values (%s,%s,%s,%s,%s,%s,%s) on conflict (commentary_id) do update set output_markdown=excluded.output_markdown",
-                    (commentary_id, payload.get("event_text"), payload.get("subject"),
-                     payload.get("cutoff_date"), payload.get("output_markdown"),
-                     payload.get("source_category", "AI生成内容"), payload.get("created_at")),
+                    (_no_nul(commentary_id), _no_nul(payload.get("event_text")), _no_nul(payload.get("subject")),
+                     _no_nul(payload.get("cutoff_date")), _no_nul(payload.get("output_markdown")),
+                     _no_nul(payload.get("source_category", "AI生成内容")), _no_nul(payload.get("created_at"))),
                 )
 
     def list_commentaries(self) -> list[dict]:

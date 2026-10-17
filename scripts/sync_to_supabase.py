@@ -85,17 +85,23 @@ def main() -> None:
     docs = local.list_documents()
     if args.limit:
         docs = docs[: args.limit]
-    remote_hashes = {d.file_hash for d in remote.list_documents()}
+    remote_docs = {d.file_hash: d for d in remote.list_documents()}
 
-    synced = skipped = 0
+    synced = skipped = repaired = 0
     errors: list[tuple[str, str]] = []
     for doc in docs:
-        if doc.file_hash in remote_hashes:
-            skipped += 1
-            continue
+        local_chunks = local.list_chunks(doc.document_id)
+        existing = remote_docs.get(doc.file_hash)
+        if existing is not None:
+            if len(remote.list_chunks(existing.document_id)) == len(local_chunks):
+                skipped += 1
+                continue
+            # 已有文档但片段不完整（如上次 NUL 字节导致部分失败）：删掉后重写
+            remote.delete_document(existing.document_id)
+            repaired += 1
         try:
             remote.upsert_document(doc)
-            remote.add_chunks(local.list_chunks(doc.document_id))
+            remote.add_chunks(local_chunks)
             synced += 1
         except Exception as e:  # noqa: BLE001
             errors.append((doc.title, str(e)))
@@ -107,7 +113,7 @@ def main() -> None:
 
     remote_after = _counts(remote)
     print(f"[云端 Postgres] 迁移后：文档 {remote_after['documents']} / 片段 {remote_after['chunks']}")
-    print(f"迁移结果：新增文档 {synced} / 去重跳过 {skipped} / 错误 {len(errors)}")
+    print(f"迁移结果：新增文档 {synced} / 完整跳过 {skipped} / 修复重写 {repaired} / 错误 {len(errors)}")
     for title, err in errors[:20]:
         print(f"  - 失败《{title[:60]}》：{err}")
     if len(errors) > 20:

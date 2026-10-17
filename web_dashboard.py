@@ -1164,22 +1164,23 @@ def _render_kb_viewpoints_page(user: str | None) -> None:
                        f"{'AI提取' if vp.get('is_ai_generated') else '人工录入'} · "
                        f"viewpoint_id: `{vp['viewpoint_id']}`")
             if vp.get("evidence_ids"):
-                with st.expander(f"关联证据（{len(vp['evidence_ids'])}）", expanded=False):
-                    for eid in vp["evidence_ids"]:
-                        ev = kb.read_evidence(eid, user)
-                        if ev:
-                            _evidence_card({
-                                "evidence_id": eid,
-                                "title": ev["document"]["title"],
-                                "document_version": ev["document"]["version"],
-                                "publish_date": ev["document"]["publish_date"],
-                                "author": ev["document"]["author"],
-                                "source_category": ev["document"]["source_category"],
-                                "text": ev["evidence"]["text"],
-                                "page_number": ev["evidence"]["page_number"],
-                                "position": ev["evidence"]["position"],
-                                "score": 0.0,
-                            })
+                if st.button(f"查看关联证据（{len(vp['evidence_ids'])}）", key=f"vp_ev_{vp['viewpoint_id']}"):
+                    with st.spinner("正在加载关联证据…"):
+                        for eid in vp["evidence_ids"]:
+                            ev = kb.read_evidence(eid, user)
+                            if ev:
+                                _evidence_card({
+                                    "evidence_id": eid,
+                                    "title": ev["document"]["title"],
+                                    "document_version": ev["document"]["version"],
+                                    "publish_date": ev["document"]["publish_date"],
+                                    "author": ev["document"]["author"],
+                                    "source_category": ev["document"]["source_category"],
+                                    "text": ev["evidence"]["text"],
+                                    "page_number": ev["evidence"]["page_number"],
+                                    "position": ev["evidence"]["position"],
+                                    "score": 0.0,
+                                })
             c1, c2, c3, c4 = st.columns(4)
             if c1.button("确认", key=f"vp_ok_{vp['viewpoint_id']}"):
                 kb.set_viewpoint_status(vp["viewpoint_id"], user, "已确认")
@@ -1260,7 +1261,11 @@ def _render_kb_commentary_online(user: str | None, docs: list[dict]) -> None:
 
 def _render_kb_commentary_page(user: str | None) -> None:
     st.markdown("#### 🗞️ 事件点评")
-    docs = kb.list_documents(user)
+    try:
+        docs = kb.list_documents(user)
+    except Exception as e:  # noqa: BLE001
+        st.error(f"加载资料列表失败（数据库不可用或查询超时）：{e}")
+        return
 
     mode = st.radio("输入方式", ["粘贴材料", "输入任务（联网获取官方数据）"], horizontal=True)
     if mode == "输入任务（联网获取官方数据）":

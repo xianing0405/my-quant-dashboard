@@ -59,6 +59,9 @@ class StorageAdapter(ABC):
     def all_chunks(self) -> list[Evidence]: ...
 
     @abstractmethod
+    def get_chunk(self, evidence_id: str) -> Evidence | None: ...
+
+    @abstractmethod
     def add_viewpoint(self, vp: Viewpoint) -> None: ...
 
     @abstractmethod
@@ -279,6 +282,11 @@ class LocalSqliteStorage(StorageAdapter):
         with self._conn() as c:
             rows = c.execute("SELECT * FROM chunks ORDER BY document_id, seq").fetchall()
         return [self._row_to_evidence(r) for r in rows]
+
+    def get_chunk(self, evidence_id: str) -> Evidence | None:
+        with self._conn() as c:
+            row = c.execute("SELECT * FROM chunks WHERE evidence_id=?", (evidence_id,)).fetchone()
+        return self._row_to_evidence(row) if row else None
 
     # ---- viewpoints ----
     def add_viewpoint(self, vp: Viewpoint) -> None:

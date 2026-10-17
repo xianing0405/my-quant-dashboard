@@ -116,10 +116,9 @@ def _keyword_score(query: str, q_tf: dict[str, int], c: Evidence, idf: dict[str,
     return score
 
 
-def _apply_filters(chunks: list[Evidence], filters: dict | None) -> list[Evidence]:
+def _apply_filters(chunks: list[Evidence], filters: dict | None, docs: dict) -> list[Evidence]:
     if not filters:
         return chunks
-    docs = {d.document_id: d for d in storage.get_store().list_documents()}
     out = []
     for c in chunks:
         d = docs.get(c.document_id)
@@ -146,10 +145,9 @@ def _apply_filters(chunks: list[Evidence], filters: dict | None) -> list[Evidenc
     return out
 
 
-def _date_unknown_count(chunks: list[Evidence], filters: dict | None) -> int:
+def _date_unknown_count(chunks: list[Evidence], filters: dict | None, docs: dict) -> int:
     if not filters or not (filters.get("date_from") or filters.get("date_to")):
         return 0
-    docs = {d.document_id: d for d in storage.get_store().list_documents()}
     seen = set()
     for c in chunks:
         d = docs.get(c.document_id)
@@ -158,10 +156,9 @@ def _date_unknown_count(chunks: list[Evidence], filters: dict | None) -> int:
     return len(seen)
 
 
-def _apply_date_filter(chunks: list[Evidence], filters: dict | None) -> list[Evidence]:
+def _apply_date_filter(chunks: list[Evidence], filters: dict | None, docs: dict) -> list[Evidence]:
     if not filters or not (filters.get("date_from") or filters.get("date_to")):
         return chunks
-    docs = {d.document_id: d for d in storage.get_store().list_documents()}
     out = []
     for c in chunks:
         d = docs.get(c.document_id)
@@ -263,9 +260,9 @@ def search_materials(
     all_chunks = store.all_chunks()
     docs = {d.document_id: d for d in store.list_documents()}
 
-    candidates = _apply_filters(all_chunks, filters)
-    date_unknown = _date_unknown_count(all_chunks, filters)
-    candidates = _apply_date_filter(candidates, filters)
+    candidates = _apply_filters(all_chunks, filters, docs)
+    date_unknown = _date_unknown_count(all_chunks, filters, docs)
+    candidates = _apply_date_filter(candidates, filters, docs)
 
     if not candidates:
         return {"hits": [], "mode": config.retrieval_mode(), "date_unknown_excluded": date_unknown}
@@ -331,12 +328,7 @@ def read_evidence(
     scope = require_read(user, "读取资料原文")
 
     store = storage.get_store()
-    # 定位片段
-    target: Evidence | None = None
-    for c in store.all_chunks():
-        if c.evidence_id == evidence_id:
-            target = c
-            break
+    target = store.get_chunk(evidence_id)
     if target is None:
         return None
 

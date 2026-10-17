@@ -23,7 +23,12 @@ def _conn():
     dsn = config.postgres_dsn()
     if not dsn:
         raise StorageError("未配置 POSTGRES_DSN")
-    return psycopg.connect(dsn, row_factory=dict_row)
+    return psycopg.connect(
+        dsn,
+        row_factory=dict_row,
+        connect_timeout=10,
+        options="-c statement_timeout=30000",
+    )
 
 
 def _no_nul(v: Any) -> Any:
@@ -130,6 +135,13 @@ class PostgresStorage(StorageAdapter):
                 cur.execute("select * from chunks order by document_id, seq")
                 rows = cur.fetchall()
         return [self._row_to_evidence(r) for r in rows]
+
+    def get_chunk(self, evidence_id: str) -> Evidence | None:
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("select * from chunks where evidence_id=%s", (evidence_id,))
+                row = cur.fetchone()
+        return self._row_to_evidence(row) if row else None
 
     # ---- viewpoints ----
     def add_viewpoint(self, vp: Viewpoint) -> None:

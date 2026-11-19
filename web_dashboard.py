@@ -1267,9 +1267,12 @@ def _render_kb_commentary_page(user: str | None) -> None:
         st.error(f"加载资料列表失败（数据库不可用或查询超时）：{e}")
         return
 
-    mode = st.radio("输入方式", ["粘贴材料", "输入任务（联网获取官方数据）"], horizontal=True)
+    mode = st.radio("输入方式", ["粘贴材料", "输入任务（联网获取官方数据）", "使用研究方法"], horizontal=True)
     if mode == "输入任务（联网获取官方数据）":
         _render_kb_commentary_online(user, docs)
+        return
+    if mode == "使用研究方法":
+        _render_kb_method_analysis(user)
         return
 
     with st.form("kb_commentary"):
@@ -1329,6 +1332,232 @@ def _render_kb_commentary_page(user: str | None) -> None:
                     st.markdown(c["output_markdown"])
 
 
+def _render_kb_method_analysis(user: str | None) -> None:
+    """使用研究方法：A股二维风险偏好指标（研究原型 v1）。查看/切换/刷新不调模型，仅按钮触发。"""
+    from core.knowledge import research_method as rm
+
+    try:
+        methods = rm.list_methods(user)
+    except Exception as e:  # noqa: BLE001
+        st.error(f"读取研究方法列表失败（数据库不可用或无权访问）：{e}")
+        return
+    if not methods:
+        st.info("尚未迁移任何研究方法。请先在服务层执行 migrate_research_method() 完成方法卡/证据/指标入库。")
+        return
+
+    by_id = {m["method_id"]: m for m in methods}
+    sel = st.selectbox("研究方法", list(by_id), format_func=lambda x: by_id[x]["name"])
+    method = by_id[sel]
+
+    mode = st.radio("分析方式", ["最新可用数据分析", "指定日期复盘"], horizontal=True)
+
+    st.caption(f"来源：{method.get('institution')}《{method.get('report_title')}》 · 版本 {method.get('version')}")
+    st.info("⚠️ 研究原型 v1，未确认完整复现原报告；参数含自选口径，仅供研究，不构成投资建议。")
+
+    # —— 指标展示（纯程序，不调模型）——
+    actual_cutoff = None
+    try:
+        if mode == "最新可用数据分析":
+            actual_cutoff = kb.get_store().latest_indicator_date(sel)
+            if not actual_cutoff:
+                st.error("存储中无指标数据。")
+                return
+            ind = rm.get_indicators(user, actual_cutoff, history_days=8)
+            st.caption(f"数据截止：{actual_cutoff}（数据新鲜度未验证：未检查 Wind 是否有更新，不把缓存最新当市场最新）")
+        else:
+            raw_date = st.text_input("复盘日期（YYYY-MM-DD）", value=st.session_state.get("rm_hist_date", ""))
+            st.session_state["rm_hist_date"] = raw_date
+            if not re.match(r"^\d{4}-\d{2}-\d{2}$", raw_date.strip()):
+                st.caption("请输入复盘日期（YYYY-MM-DD）后查看该日指标状态。")
+                return
+            actual_cutoff = raw_date.strip()
+            ind = rm.get_indicators(user, actual_cutoff, history_days=8)
+            if not ind.get("ok"):
+                st.warning(ind["error"])
+                return
+            if actual_cutoff < "2026-10-17":
+                st.caption(f"历史复盘：{actual_cutoff}（事后应用该方法的历史演示，非当时已发出的实时信号）")
+            else:
+                st.caption(f"历史复盘：{actual_cutoff}（事后回看，非当前信号）")
+    except Exception as e:  # noqa: BLE001
+        st.error(f"读取指标失败：{e}")
+        return
+
+    cur, prev = ind["current"], ind.get("previous")
+    st.markdown(f"**当前（{cur['date']}）**：{cur['quadrant']}（X={cur['X']:.2f}，Y={cur['Y']:.2f}；"
+                f"A_raw={cur['A_raw']:.3f}，B_raw={cur['B_raw']:.4f}）")
+    if prev:
+        dX = cur["X"] - prev["X"]; dY = cur["Y"] - prev["Y"]
+        st.markdown(f"**较上一期（{prev['date']}）**：ΔX={dX:+.2f}，ΔY={dY:+.2f}")
+    else:
+        st.caption("（该日期为首个指标日，无上一期，无边际变化；服务层不允许生成分析）")
+
+    # —— 生成（仅管理员；点击才调模型）——
+    can_gen = kb.is_admin(user) and prev is not None
+    if st.button("生成分析", disabled=not can_gen):
+        with st.spinner("正在生成分析…"):
+            r = rm.apply_method(
+                mode="latest" if mode == "最新可用数据分析" else "historical",
+                cutoff=None if mode == "最新可用数据分析" else actual_cutoff,
+                user=user,
+                aux_missing=["资金面实时值(R001/DR001)", "资金流(纯债基金净申购/固收+申赎)", "债市利率实时值"],
+            )
+        if not r.get("ok"):
+            st.error(r.get("error"))
+        else:
+            st.session_state["rm_result"] = r
+            st.session_state["rm_result_method"] = sel
+            st.session_state["rm_result_mode"] = mode
+            st.session_state["rm_result_cutoff"] = r["cutoff"]
+
+    # —— 展示结果（仅当与当前方法/方式/日期匹配，避免旧结果冒充新条件）——
+    r = st.session_state.get("rm_result")
+    if (r and st.session_state.get("rm_result_method") == sel
+            and st.session_state.get("rm_result_mode") == mode
+            and st.session_state.get("rm_result_cutoff") == actual_cutoff):
+        st.markdown("---")
+        st.markdown(r["output"])
+        u = r.get("usage") or {}
+        st.caption(f"模型：{r.get('model')} · 输入 token {u.get('input_tokens')} · 输出 token {u.get('output_tokens')} · "
+                   f"结果ID：{r.get('result_id')}")
+        with st.expander("原文证据（核对引用）", expanded=False):
+            for e in method.get("evidence") or []:
+                st.markdown(f"**[证据:{e['id']}]（{e['location']}）** {e['text']}")
+
+
+def _render_kb_signal_watch(user: str | None, readonly: bool = False) -> None:
+    """信号观测：A股二维风险偏好（研究原型 v1）。查看/切换/刷新不调模型；readonly=True 时隐藏生成按钮。"""
+    from core.knowledge import research_method as rm
+
+    st.markdown("#### 📡 信号观测")
+    if not (kb.is_admin(user) or user == "demo_readonly"):
+        st.warning("信号观测仅管理员或只读演示可见。")
+        return
+
+    try:
+        method = rm.get_method_snapshot(user)
+    except Exception as e:  # noqa: BLE001
+        st.error(f"加载方法失败：{e}")
+        return
+
+    st.caption(f"来源：{method.get('institution')}《{method.get('report_title')}》· 方法版本 {method.get('version')}")
+    st.info("⚠️ 研究原型 v1，未确认完整复现原报告；参数含自选口径。数据日期从数据库读取，**非实时更新**；自动更新、主动预警尚未实现。")
+
+    # 展示范围选择
+    range_opt = st.radio("展示范围", ["近30个交易日", "全部已入库数据"], horizontal=True, key="sw_range")
+    history_days = 30 if range_opt == "近30个交易日" else 9999
+
+    try:
+        latest = kb.get_store().latest_indicator_date(method["method_id"])
+        if not latest:
+            st.error("无指标数据。")
+            return
+        ind = rm.get_indicators(user, latest, history_days=history_days)
+        cur, prev = ind["current"], ind.get("previous")
+    except Exception as e:  # noqa: BLE001
+        st.error(f"读取指标失败：{e}")
+        return
+
+    st.markdown(f"**最近可用数据日期**：{cur['date']}（行情日期；数据新鲜度未验证，不称实时）")
+    st.markdown(f"**截至所示数据日期的状态**：{cur['quadrant']}（X={cur['X']:.2f}，Y={cur['Y']:.2f}）")
+    st.markdown(f"- A_raw（近21日/近250日日均成交量比）＝ {cur['A_raw']:.3f}，即近21日均量约为近250日均量的 "
+                f"{cur['A_raw']*100:.1f}%（<100% 缩量、>100% 放量）")
+    st.markdown(f"- B_raw（科技组合相对沪深300的区间收益差）＝ {cur['B_raw']*100:.2f} 个百分点")
+    if prev:
+        dX = cur["X"] - prev["X"]; dY = cur["Y"] - prev["Y"]
+        st.markdown(f"**较上一期（{prev['date']}）**：ΔX={dX:+.2f}，ΔY={dY:+.2f}")
+
+    # 方案A 二维四象限轨迹（X/Y 范围覆盖 0，象限标签按相对零轴位置放置）
+    hist = ind.get("history") or []
+    if hist:
+        df = pd.DataFrame(hist)
+        n = len(df)
+        scope_note = "（数据库总量 102，当前仅近30日）" if range_opt == "近30个交易日" else "（全部已入库）"
+        st.caption(f"展示范围：{df['date'].iloc[0]} ~ {df['date'].iloc[-1]}，共 {n} 个交易日{scope_note}")
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=df["X"], y=df["Y"], mode="lines+markers", name="轨迹",
+            text=df["date"], hovertemplate="%{text}<br>X=%{x:.2f} Y=%{y:.2f}<extra></extra>",
+            line=dict(width=1.5, color="#888"),
+            marker=dict(size=5, color=df.index, colorscale="Viridis", showscale=False),
+        ))
+        x_min = min(0.0, float(df["X"].min())); x_max = max(0.0, float(df["X"].max()))
+        y_min = min(0.0, float(df["Y"].min())); y_max = max(0.0, float(df["Y"].max()))
+        pad_x = (x_max - x_min) * 0.08 + 0.2; pad_y = (y_max - y_min) * 0.08 + 0.2
+        x_lo, x_hi = x_min - pad_x, x_max + pad_x
+        y_lo, y_hi = y_min - pad_y, y_max + pad_y
+        qx_neg = (x_lo + 0) / 2; qx_pos = (0 + x_hi) / 2
+        qy_pos = (0 + y_hi) / 2; qy_neg = (y_lo + 0) / 2
+        for tx, ty, t in [(qx_neg, qy_pos, "缩量进攻"), (qx_pos, qy_pos, "放量进攻"),
+                          (qx_neg, qy_neg, "缩量防御"), (qx_pos, qy_neg, "放量防御")]:
+            fig.add_annotation(x=tx, y=ty, text=t, showarrow=False, font=dict(color="#666", size=11))
+        fig.add_trace(go.Scatter(
+            x=[df["X"].iloc[-1]], y=[df["Y"].iloc[-1]], mode="markers",
+            name=f"最新 {df['date'].iloc[-1]}",
+            marker=dict(size=12, color="#d62728", line=dict(color="white", width=1)),
+        ))
+        fig.update_layout(
+            title="方案A 二维四象限轨迹（X=成交活跃度，Y=博弈倾向；按日期顺序连线）",
+            xaxis_title="X 成交活跃度 (120日滚动Z)", yaxis_title="Y 博弈倾向 (120日滚动Z)",
+            xaxis=dict(zeroline=True, zerolinecolor="black", range=[x_lo, x_hi]),
+            yaxis=dict(zeroline=True, zerolinecolor="black", range=[y_lo, y_hi]),
+            height=460, margin=dict(l=10, r=10, t=40, b=10),
+        )
+        st.plotly_chart(fig, width="stretch")
+        st.caption("零轴为界划分四象限：X>0=放量、Y>0=进攻；象限标签按相对零轴的位置放置。"
+                   "X/Y 为 120 日滚动 Z-score，其正负是相对滚动基准的高低，不完全等同 A_raw 是否>1 或原始收益差是否为正。")
+        with st.expander("计算明细（近10日）", expanded=False):
+            st.dataframe(df.tail(10)[["date", "X", "Y", "quadrant"]])
+    else:
+        st.caption("（无历史序列）")
+
+    # 原文披露 vs 自选参数
+    with st.expander("原文披露 vs 自选参数（及未确认口径）", expanded=False):
+        st.markdown("**原文披露**：横轴=成交活跃度（近1个月/1年日均成交量比）；纵轴=博弈倾向（近1个月科技指数相对大盘指数超额）；两轴120日Z；科技=创业50+科创50等权，大盘=沪深300。")
+        st.markdown("**自选参数（非原文）**：成交量=万得全A·VOLUME；1月=21、1年=250交易日；科技组合日收益率各50%每日再平衡；ddof=1、含当日。")
+        for u in (method.get("unconfirmed") or []):
+            st.caption(f"未确认：{u}")
+
+    # 已有分析 + 生成入口
+    st.markdown("---")
+    st.markdown("**已有分析**")
+    try:
+        res = rm.list_results(user, method["method_id"])
+        if res:
+            for r in res[:5]:
+                mode_cn = "最近入库数据分析" if r.get("mode") == "latest" else "历史复盘"
+                snap_ok = bool(r.get("evidence_snapshot")) and bool(r.get("input_snapshot"))
+                title = f"{mode_cn} · 数据日期 {r.get('input_date')} · 生成 {str(r.get('created_at',''))[:19]}"
+                with st.expander(title, expanded=False):
+                    st.caption("历史生成结果，待复核（生成于方法卡修订前，未自动视为通过审核）"
+                               + ("" if snap_ok else "；输入快照不完整"))
+                    if r.get("review_note"):
+                        st.warning("勘误/复核说明：" + r["review_note"])
+                    st.markdown(r.get("output_markdown") or "")
+        else:
+            st.caption("（暂无已保存分析）")
+    except Exception as e:  # noqa: BLE001
+        st.caption(f"读取已有分析失败：{e}")
+
+    if not readonly:
+        st.caption(f"仅分析已入库数据（最近可用数据日期 {latest}），不会更新行情；点击「生成」会调用模型。")
+        if st.button("基于最近入库数据生成分析", key="sw_gen"):
+            with st.spinner("正在生成分析…"):
+                r = rm.apply_method(
+                    mode="latest", user=user,
+                    aux_missing=["资金面实时值(R001/DR001)", "资金流(纯债基金净申购/固收+申赎)", "债市利率实时值"],
+                )
+            if not r.get("ok"):
+                st.error(r.get("error"))
+            else:
+                st.session_state["sw_result"] = r
+    r = st.session_state.get("sw_result")
+    if r:
+        st.markdown(r["output"])
+        u = r.get("usage") or {}
+        st.caption(f"模型：{r.get('model')} · 输入 {u.get('input_tokens')} · 输出 {u.get('output_tokens')} · 结果ID {r.get('result_id')}")
+
+
 def _render_model_usage() -> None:
     """管理员可见：展示本进程实际模型调用统计（辅助功能，读取失败不阻断其他页面）。"""
     stats_fn = getattr(kb_llm, "usage_stats", None)
@@ -1366,7 +1595,7 @@ def _render_knowledge_page() -> None:
         st.caption("✅ 已登录管理员：可查询全部资料并进行维护（上传/删除/公开范围/观点/点评）。")
         _render_kb_stats_bar()
         _render_model_usage()
-        tabs = st.tabs(["📥 资料管理", "💬 知识问答", "🧭 历史观点", "🗞️ 事件点评"])
+        tabs = st.tabs(["📥 资料管理", "💬 知识问答", "🧭 历史观点", "🗞️ 事件点评", "📡 信号观测"])
         with tabs[0]:
             _render_kb_materials_page("admin")
         with tabs[1]:
@@ -1375,11 +1604,20 @@ def _render_knowledge_page() -> None:
             _render_kb_viewpoints_page("admin")
         with tabs[3]:
             _render_kb_commentary_page("admin")
+        with tabs[4]:
+            _render_kb_signal_watch("admin")
+        return
+
+    # 只读演示：可查看信号/方法/计算明细/已复核分析，不可维护、不可调用模型
+    if _demo_readonly_authed():
+        st.caption("✅ 只读演示身份：可查看信号、方法说明、计算明细与已复核分析；不可维护资料、更新行情或调用模型。")
+        _render_kb_signal_watch("demo_readonly", readonly=True)
         return
 
     # 非管理员：只读（访客）
     if mode == "public_readonly":
         st.caption("访客可匿名查询管理员已公开的研究资料；资料维护仅管理员可操作。")
+        _demo_login_form()
         _render_kb_qa_page("anonymous")
     elif mode == "password":
         if not _kb_authorized():
@@ -1411,6 +1649,31 @@ def _admin_authed() -> bool:
     if not pwd:
         return False
     return bool(st.session_state.get("admin_authed"))
+
+
+def _demo_readonly_authed() -> bool:
+    """只读演示身份：需配置 DEMO_READONLY_PASSWORD 且已登录，仅可查看信号/方法/已复核分析。"""
+    pwd = kb_config.get("DEMO_READONLY_PASSWORD")
+    if not pwd:
+        return False
+    return bool(st.session_state.get("demo_readonly"))
+
+
+def _demo_login_form() -> None:
+    """只读演示登录入口（不共享管理员密码；服务层仍拒绝演示身份的写操作）。"""
+    if _demo_readonly_authed():
+        return
+    if not kb_config.get("DEMO_READONLY_PASSWORD"):
+        return
+    with st.expander("只读演示登录（教师）"):
+        with st.form("demo_login_form"):
+            p = st.text_input("演示口令", type="password", key="demo_pwd")
+            if st.form_submit_button("进入只读演示"):
+                if hmac.compare_digest(str(p or ""), str(kb_config.get("DEMO_READONLY_PASSWORD") or "")):
+                    st.session_state.demo_readonly = True
+                    st.rerun()
+                else:
+                    st.error("口令错误")
 
 
 def _require_admin() -> bool:

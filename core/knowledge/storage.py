@@ -85,6 +85,34 @@ class StorageAdapter(ABC):
     @abstractmethod
     def stats(self) -> dict: ...
 
+    # ---- 研报方法（方法卡 / 指标 / 生成结果）。默认抛错；本地 SQLite 后端实现 ----
+    def upsert_method(self, payload: dict) -> None:
+        raise StorageError("当前存储后端不支持「研报方法」持久化")
+
+    def get_method_by_key(self, method_key: str) -> dict | None:
+        raise StorageError("当前存储后端不支持「研报方法」持久化")
+
+    def get_method(self, method_id: str) -> dict | None:
+        raise StorageError("当前存储后端不支持「研报方法」持久化")
+
+    def list_methods(self) -> list[dict]:
+        raise StorageError("当前存储后端不支持「研报方法」持久化")
+
+    def upsert_indicator(self, method_id: str, date: str, payload: dict) -> None:
+        raise StorageError("当前存储后端不支持「研报指标」持久化")
+
+    def list_indicators(self, method_id: str) -> list[dict]:
+        raise StorageError("当前存储后端不支持「研报指标」持久化")
+
+    def latest_indicator_date(self, method_id: str) -> str | None:
+        raise StorageError("当前存储后端不支持「研报指标」持久化")
+
+    def save_result(self, result_id: str, payload: dict) -> None:
+        raise StorageError("当前存储后端不支持「研报结果」持久化")
+
+    def list_results(self, method_id: str) -> list[dict]:
+        raise StorageError("当前存储后端不支持「研报结果」持久化")
+
 
 # ---------------------------------------------------------------------------
 # JSON 字段编解码
@@ -176,6 +204,54 @@ CREATE TABLE IF NOT EXISTS commentaries (
     source_category TEXT NOT NULL DEFAULT 'AI生成内容',
     created_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS research_methods (
+    method_id TEXT PRIMARY KEY,
+    method_key TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
+    version TEXT NOT NULL,
+    institution TEXT,
+    source_url TEXT,
+    report_title TEXT,
+    evidence TEXT,
+    params TEXT,
+    unconfirmed TEXT,
+    method_card_md TEXT,
+    created_at TEXT,
+    updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS research_indicators (
+    method_id TEXT NOT NULL,
+    date TEXT NOT NULL,
+    scheme TEXT NOT NULL,
+    X REAL,
+    Y REAL,
+    A_raw REAL,
+    B_raw REAL,
+    quadrant TEXT,
+    history TEXT,
+    data_source TEXT,
+    computed_at TEXT,
+    PRIMARY KEY (method_id, scheme, date)
+);
+
+CREATE TABLE IF NOT EXISTS research_results (
+    result_id TEXT PRIMARY KEY,
+    method_id TEXT NOT NULL,
+    method_version TEXT,
+    input_date TEXT,
+    mode TEXT,
+    evidence_ids TEXT,
+    evidence_snapshot TEXT,
+    input_snapshot TEXT,
+    output_markdown TEXT,
+    model TEXT,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_rmethod_results ON research_results(method_id, input_date);
 """
 
 
@@ -188,6 +264,33 @@ class LocalSqliteStorage(StorageAdapter):
     def _init(self) -> None:
         with self._conn() as c:
             c.executescript(_SCHEMA)
+            # 迁移：为早期创建的 research_results 补 evidence_snapshot / input_snapshot 列（幂等）
+            for col in ("evidence_snapshot", "input_snapshot", "review_note"):
+                try:
+                    c.execute(f"ALTER TABLE research_results ADD COLUMN {col} TEXT")
+                except sqlite3.OperationalError:
+                    pass
+            # 迁移：research_indicators 唯一键 (method_id, date) -> (method_id, scheme, date)（非破坏性，先复制）
+            self._migrate_indicators_scheme_key(c)
+
+    @staticmethod
+    def _migrate_indicators_scheme_key(c) -> None:
+        ddl = c.execute("SELECT sql FROM sqlite_master WHERE name='research_indicators'").fetchone()
+        if not ddl:
+            return
+        compact = ddl[0].replace(" ", "").replace("\n", "").replace("\t", "")
+        if "PRIMARYKEY(method_id,scheme,date)" in compact:
+            return  # 已迁移
+        c.execute("ALTER TABLE research_indicators RENAME TO research_indicators_old")
+        c.execute("""CREATE TABLE research_indicators (
+            method_id TEXT NOT NULL, date TEXT NOT NULL, scheme TEXT NOT NULL,
+            X REAL, Y REAL, A_raw REAL, B_raw REAL, quadrant TEXT, history TEXT,
+            data_source TEXT, computed_at TEXT,
+            PRIMARY KEY (method_id, scheme, date))""")
+        c.execute("""INSERT INTO research_indicators (method_id, date, scheme, X, Y, A_raw, B_raw, quadrant, history, data_source, computed_at)
+                     SELECT method_id, date, COALESCE(scheme, 'A_滚动120日Z'), X, Y, A_raw, B_raw, quadrant, history, data_source, computed_at
+                     FROM research_indicators_old""")
+        c.execute("DROP TABLE research_indicators_old")
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
@@ -348,6 +451,115 @@ class LocalSqliteStorage(StorageAdapter):
         with self._conn() as c:
             rows = c.execute("SELECT * FROM commentaries ORDER BY created_at DESC").fetchall()
         return [dict(r) for r in rows]
+
+    # ---- research methods（方法卡 / 证据 / 指标 / 结果）----
+    def upsert_method(self, payload: dict) -> None:
+        d = dict(payload)
+        d["evidence"] = _dump(d.get("evidence", []))
+        d["params"] = _dump(d.get("params", {}))
+        d["unconfirmed"] = _dump(d.get("unconfirmed", []))
+        cols = ["method_id", "method_key", "name", "version", "institution", "source_url",
+                "report_title", "evidence", "params", "unconfirmed", "method_card_md",
+                "created_at", "updated_at"]
+        with self._conn() as c:
+            c.execute(
+                f"""INSERT INTO research_methods ({', '.join(cols)})
+                    VALUES ({', '.join(':'+k for k in cols)})
+                    ON CONFLICT(method_id) DO UPDATE SET
+                    {', '.join(f'{k}=excluded.{k}' for k in cols if k != 'method_id')}""",
+                {k: d.get(k) for k in cols},
+            )
+
+    def _row_to_method(self, row: sqlite3.Row) -> dict:
+        d = dict(row)
+        d["evidence"] = _load(d.get("evidence"), [])
+        d["params"] = _load(d.get("params"), {})
+        d["unconfirmed"] = _load(d.get("unconfirmed"), [])
+        return d
+
+    def get_method_by_key(self, method_key: str) -> dict | None:
+        with self._conn() as c:
+            row = c.execute("SELECT * FROM research_methods WHERE method_key=?", (method_key,)).fetchone()
+        return self._row_to_method(row) if row else None
+
+    def get_method(self, method_id: str) -> dict | None:
+        with self._conn() as c:
+            row = c.execute("SELECT * FROM research_methods WHERE method_id=?", (method_id,)).fetchone()
+        return self._row_to_method(row) if row else None
+
+    def list_methods(self) -> list[dict]:
+        with self._conn() as c:
+            rows = c.execute("SELECT * FROM research_methods ORDER BY name, version").fetchall()
+        return [self._row_to_method(r) for r in rows]
+
+    def upsert_indicator(self, method_id: str, date: str, payload: dict) -> None:
+        d = dict(payload)
+        d["history"] = _dump(d.get("history", []))
+        with self._conn() as c:
+            c.execute(
+                """INSERT OR REPLACE INTO research_indicators
+                   (method_id, date, scheme, X, Y, A_raw, B_raw, quadrant, history, data_source, computed_at)
+                   VALUES (:method_id, :date, :scheme, :X, :Y, :A_raw, :B_raw, :quadrant,
+                           :history, :data_source, :computed_at)""",
+                {"method_id": method_id, "date": date, "scheme": d.get("scheme"),
+                 "X": d.get("X"), "Y": d.get("Y"), "A_raw": d.get("A_raw"), "B_raw": d.get("B_raw"),
+                 "quadrant": d.get("quadrant"), "history": d["history"],
+                 "data_source": d.get("data_source"), "computed_at": d.get("computed_at")},
+            )
+
+    def _row_to_indicator(self, row: sqlite3.Row) -> dict:
+        d = dict(row)
+        d["history"] = _load(d.get("history"), [])
+        return d
+
+    def list_indicators(self, method_id: str, scheme: str | None = None) -> list[dict]:
+        with self._conn() as c:
+            if scheme:
+                rows = c.execute("SELECT * FROM research_indicators WHERE method_id=? AND scheme=? ORDER BY date", (method_id, scheme)).fetchall()
+            else:
+                rows = c.execute("SELECT * FROM research_indicators WHERE method_id=? ORDER BY scheme, date", (method_id,)).fetchall()
+        return [self._row_to_indicator(r) for r in rows]
+
+    def latest_indicator_date(self, method_id: str) -> str | None:
+        with self._conn() as c:
+            row = c.execute("SELECT MAX(date) d FROM research_indicators WHERE method_id=?", (method_id,)).fetchone()
+        return row["d"] if row and row["d"] else None
+
+    def save_result(self, result_id: str, payload: dict) -> None:
+        d = dict(payload)
+        d["evidence_ids"] = _dump(d.get("evidence_ids", []))
+        d["evidence_snapshot"] = _dump(d.get("evidence_snapshot", []))
+        d["input_snapshot"] = _dump(d.get("input_snapshot", {}))
+        with self._conn() as c:
+            c.execute(
+                """INSERT OR REPLACE INTO research_results
+                   (result_id, method_id, method_version, input_date, mode, evidence_ids,
+                    evidence_snapshot, input_snapshot, output_markdown, model, input_tokens, output_tokens, created_at)
+                   VALUES (:result_id, :method_id, :method_version, :input_date, :mode, :evidence_ids,
+                           :evidence_snapshot, :input_snapshot, :output_markdown, :model, :input_tokens, :output_tokens, :created_at)""",
+                {"result_id": result_id, "method_id": d.get("method_id"), "method_version": d.get("method_version"),
+                 "input_date": d.get("input_date"), "mode": d.get("mode"), "evidence_ids": d["evidence_ids"],
+                 "evidence_snapshot": d["evidence_snapshot"], "input_snapshot": d["input_snapshot"],
+                 "output_markdown": d.get("output_markdown"), "model": d.get("model"),
+                 "input_tokens": d.get("input_tokens"), "output_tokens": d.get("output_tokens"),
+                 "created_at": d.get("created_at")},
+            )
+
+    def list_results(self, method_id: str) -> list[dict]:
+        with self._conn() as c:
+            rows = c.execute("SELECT * FROM research_results WHERE method_id=? ORDER BY created_at DESC", (method_id,)).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["evidence_ids"] = _load(d.get("evidence_ids"), [])
+            d["evidence_snapshot"] = _load(d.get("evidence_snapshot"), [])
+            d["input_snapshot"] = _load(d.get("input_snapshot"), {})
+            out.append(d)
+        return out
+
+    def set_review_note(self, result_id: str, note: str) -> None:
+        with self._conn() as c:
+            c.execute("UPDATE research_results SET review_note=? WHERE result_id=?", (note, result_id))
 
     # ---- stats ----
     def stats(self) -> dict:

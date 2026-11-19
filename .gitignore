@@ -34,3 +34,6 @@ core/knowledge/store/
 
 # 测试夹具（本地测试生成的 PDF/DOCX 等，不进入版本库）
 tests/fixtures/
+
+# ===== 研究原型（研报方法学习 + 指标计算 + AI 分析；含内部数据/原文，绝不进入版本库）=====
+research/

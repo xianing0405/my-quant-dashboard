@@ -32,12 +32,15 @@ def available() -> bool:
     return bool(_token())
 
 
-def _record_usage(input_tokens, output_tokens, finish_reason=None, request_id=None, status=None):
+def _record_usage(input_tokens, output_tokens, finish_reason=None, request_id=None, status=None,
+                  cache_read=None, cache_creation=None):
     with _lock:
         _usage_log.append({
             "model": _MODEL,
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
+            "cache_read_input_tokens": cache_read,
+            "cache_creation_input_tokens": cache_creation,
             "finish_reason": finish_reason,
             "request_id": request_id,
             "status": status,
@@ -128,7 +131,9 @@ def complete(prompt: str, *, max_tokens: int = 2000, system: str | None = None) 
     u = data.get("usage") or {}
     finish = data.get("stop_reason") or data.get("finish_reason")
     _record_usage(u.get("input_tokens"), u.get("output_tokens"),
-                  finish_reason=finish, request_id=rid, status=resp.status_code)
+                  finish_reason=finish, request_id=rid, status=resp.status_code,
+                  cache_read=u.get("cache_read_input_tokens"),
+                  cache_creation=u.get("cache_creation_input_tokens"))
 
     content = data.get("content") or []
     # 只记录内容块类型与长度（不输出思考正文/密钥/完整研报），用于诊断

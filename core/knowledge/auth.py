@@ -79,6 +79,11 @@ def is_admin(user: str | None) -> bool:
     return (user or "").strip() == ADMIN_USER
 
 
+def is_demo_readonly(user: str | None) -> bool:
+    """是否只读演示身份（可查看信号/方法/已复核分析，不可维护、不可调用模型）。"""
+    return (user or "").strip() == "demo_readonly"
+
+
 def read_scope(user: str | None) -> str | None:
     """返回读取范围：'all'（管理员/已登录）、'public'（匿名只读公开资料）、None（拒绝）。"""
     if is_admin(user):
